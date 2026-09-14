@@ -1,0 +1,203 @@
+html, body {
+    width: 100%;
+    min-height: 100%;
+    margin: 0;
+    padding: 0;
+    background: #fff;
+    color: #000;
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 20px;
+}
+
+#app {
+    margin: 0 auto;
+    padding: 16px 24px 20px;
+    max-width: 1180px;
+}
+
+#header {
+    border-bottom: 3px solid #000;
+    padding-bottom: 9px;
+}
+
+h1 {
+    margin: 0;
+    font-size: 32px;
+    letter-spacing: -1px;
+}
+
+#stop-name {
+    margin-top: 4px;
+    font-size: 22px;
+}
+
+#change-stop {
+    float: right;
+    margin: -31px 0 0;
+    min-height: 32px;
+    padding: 4px 8px;
+    font-size: 16px;
+}
+
+#stop-picker {
+    margin: 11px 0 8px;
+    padding: 9px 10px 7px;
+    border: 2px solid #000;
+}
+
+.picker-title {
+    margin-bottom: 5px;
+    font-size: 17px;
+    font-weight: bold;
+    text-transform: uppercase;
+}
+
+label, input, button, select {
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 18px;
+}
+
+label {
+    display: inline-block;
+    margin: 0 5px 3px 0;
+    font-weight: bold;
+}
+
+.input-row {
+    margin: 0 0 7px;
+}
+
+.secondary-row {
+    padding-top: 7px;
+    border-top: 1px solid #000;
+    margin-bottom: 1px;
+}
+
+input {
+    width: 255px;
+    padding: 7px;
+    border: 2px solid #000;
+    color: #000;
+    background: #fff;
+}
+
+button {
+    margin: 4px 0 4px 5px;
+    min-height: 38px;
+    padding: 7px 11px;
+    color: #000;
+    background: #fff;
+    border: 2px solid #000;
+    font-weight: bold;
+}
+
+button:active { background: #000; color: #fff; }
+
+#search-results {
+    margin: 5px 0 9px;
+}
+
+.search-help, .result-meta {
+    font-size: 16px;
+}
+
+.search-result, .stop-choice {
+    display: block;
+    width: 100%;
+    margin: 4px 0;
+    padding: 7px 9px;
+    text-align: left;
+    font-weight: normal;
+}
+
+.result-name { font-weight: bold; }
+
+#arrivals-heading {
+    margin-top: 10px;
+    padding: 4px 0;
+    border-bottom: 2px solid #000;
+    font-size: 22px;
+    font-weight: bold;
+}
+
+#arrivals-heading button {
+    float: right;
+    margin: -2px 0 0;
+    font-size: 16px;
+}
+
+.notice {
+    min-height: 22px;
+    margin: 4px 0 6px;
+    padding: 3px 0;
+    font-size: 17px;
+}
+
+.error { font-weight: bold; }
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+}
+
+th, td {
+    border-bottom: 1px solid #000;
+    padding: 10px 5px;
+    text-align: left;
+    vertical-align: top;
+}
+
+th { border-top: 2px solid #000; }
+
+.route { width: 16%; font-size: 29px; font-weight: bold; }
+.destination { width: 49%; }
+.due { width: 35%; text-align: right; white-space: nowrap; font-size: 22px; font-weight: bold; }
+
+#footer {
+    margin-top: 10px;
+    padding-top: 7px;
+    border-top: 1px solid #000;
+    font-size: 15px;
+}
+
+#countdown { margin-left: 9px; }
+
+#footer button {
+    float: right;
+    min-height: 30px;
+    margin: -5px 0 0;
+    padding: 4px 8px;
+    font-size: 15px;
+}
+
+#settings {
+    margin-top: 11px;
+    padding: 9px 10px;
+    border: 2px solid #000;
+}
+
+#settings select {
+    margin: 0 4px 0 0;
+    padding: 6px;
+    border: 2px solid #000;
+    color: #000;
+    background: #fff;
+}
+
+.settings-note {
+    margin-top: 5px;
+    font-size: 15px;
+}
+
+.is-hidden { display: none; }
+
+@media screen and (max-width: 600px) {
+    #app { padding: 9px 10px 14px; }
+    h1 { font-size: 29px; }
+    #stop-name { font-size: 19px; }
+    input { width: 205px; }
+    .route { width: 17%; font-size: 25px; }
+    .destination { width: 48%; }
+    .due { width: 35%; font-size: 19px; }
+}

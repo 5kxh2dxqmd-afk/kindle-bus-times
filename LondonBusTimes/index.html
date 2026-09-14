@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+    <title>London Bus Times</title>
+    <link rel="stylesheet" type="text/css" media="screen" href="style.css">
+    <script type="text/javascript" src="script.js"></script>
+</head>
+<body>
+    <div id="app">
+        <div id="header">
+            <h1>London Bus Times</h1>
+            <div id="stop-name">Choose a boarding stop</div>
+            <button id="change-stop" class="is-hidden" type="button">Change stop</button>
+        </div>
+
+        <div id="stop-picker">
+            <div class="picker-title">1. Find your boarding stop</div>
+            <div id="search-controls" class="input-row">
+                <label for="stop-search">Stop name or 5-digit code</label>
+                <input id="stop-search" type="text" autocomplete="off" placeholder="e.g. Victoria or 73231">
+                <button id="search-stop" type="button">Search</button>
+            </div>
+            <div id="controls" class="input-row secondary-row">
+                <label for="stop-id">Already know a TfL stop ID?</label>
+                <input id="stop-id" type="text" autocapitalize="characters" autocomplete="off" placeholder="e.g. 490008660N">
+                <button id="save-stop" type="button">Use stop ID</button>
+            </div>
+        </div>
+        <div id="search-results"></div>
+
+        <div id="arrivals-heading">
+            <span>Live departures</span>
+            <button id="refresh" type="button">Refresh now</button>
+        </div>
+        <div id="status" class="notice">Search for a bus stop to begin.</div>
+        <div id="arrivals"></div>
+
+        <div id="footer">
+            <span id="refresh-summary">Refreshes every 1 min</span>
+            <span id="countdown">Not scheduled</span>
+            <button id="toggle-settings" type="button">Settings</button>
+        </div>
+        <div id="settings" class="is-hidden">
+            <div class="picker-title">Auto-refresh</div>
+            <label for="refresh-interval">Refresh arrivals every</label>
+            <select id="refresh-interval">
+                <option value="30">30 seconds</option>
+                <option value="60">1 minute</option>
+                <option value="120">2 minutes</option>
+                <option value="300">5 minutes</option>
+                <option value="600">10 minutes</option>
+            </select>
+            <button id="save-settings" type="button">Save setting</button>
+            <div class="settings-note">A shorter interval uses more Wi-Fi and battery.</div>
+        </div>
+    </div>
+</body>
+</html>
