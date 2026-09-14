@@ -231,8 +231,241 @@
         });
     }
 
+    var VehicleTracker = (function () {
+        var API_ROOT = "https://bustimes.org/";
+        var requestId = 0;
+        var pollTimer = null;
+        var currentRegistration = "";
+
+        function setText(node, value) {
+            if (node) {
+                node.innerHTML = "";
+                node.appendChild(document.createTextNode(value));
+            }
+        }
+
+        function normaliseRegistration(value) {
+            return (value || "").replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+        }
+
+        function displayRegistration(value) {
+            value = normaliseRegistration(value);
+            if (/^[A-Z]{2}[0-9]{2}[A-Z]{3}$/.test(value)) {
+                return value.substring(0, 4) + " " + value.substring(4);
+            }
+            return value || "Not available";
+        }
+
+        function requestJSON(url, onSuccess, onFailure) {
+            var request = new XMLHttpRequest();
+            request.open("GET", url, true);
+            request.setRequestHeader("Accept", "application/json");
+            request.onreadystatechange = function () {
+                var data;
+                if (request.readyState !== 4) {
+                    return;
+                }
+                if (request.status < 200 || request.status >= 300) {
+                    onFailure("HTTP " + request.status);
+                    return;
+                }
+                try {
+                    data = JSON.parse(request.responseText);
+                } catch (ignore) {
+                    onFailure("unreadable response");
+                    return;
+                }
+                onSuccess(data);
+            };
+            request.onerror = function () {
+                onFailure("network error");
+            };
+            request.send(null);
+        }
+
+        function panel() {
+            return byId("vehicle-detail");
+        }
+
+        function isCurrent(token) {
+            return token === requestId && currentRegistration !== "";
+        }
+
+        function stopPolling() {
+            if (pollTimer !== null) {
+                window.clearInterval(pollTimer);
+                pollTimer = null;
+            }
+        }
+
+        function setField(name, value) {
+            setText(byId("vehicle-" + name), value);
+        }
+
+        function addField(table, name, label, value) {
+            var row = document.createElement("tr");
+            var heading = document.createElement("th");
+            var detail = document.createElement("td");
+            heading.scope = "row";
+            detail.id = "vehicle-" + name;
+            setText(heading, label);
+            setText(detail, value);
+            row.appendChild(heading);
+            row.appendChild(detail);
+            table.appendChild(row);
+        }
+
+        function renderPanel(registration) {
+            var detailPanel = panel();
+            var closeButton = document.createElement("button");
+            var title = document.createElement("h2");
+            var subtitle = document.createElement("div");
+            var table = document.createElement("table");
+            if (!detailPanel) {
+                return;
+            }
+            detailPanel.innerHTML = "";
+            detailPanel.className = "";
+            closeButton.type = "button";
+            closeButton.className = "vehicle-close";
+            setText(closeButton, "Close");
+            closeButton.onclick = close;
+            setText(title, "Vehicle tracking");
+            subtitle.className = "vehicle-subtitle";
+            setText(subtitle, "TfL vehicle: " + displayRegistration(registration));
+            table.className = "vehicle-data";
+            addField(table, "registration", "Registration", displayRegistration(registration));
+            addField(table, "fleet", "Fleet number", "Looking up…");
+            addField(table, "operator", "Operator", "Looking up…");
+            addField(table, "type", "Vehicle type", "Looking up…");
+            addField(table, "position", "Live position", "Looking up…");
+            addField(table, "heading", "Heading", "Waiting for live position");
+            addField(table, "updated", "Updated", "Waiting for live position");
+            detailPanel.appendChild(closeButton);
+            detailPanel.appendChild(title);
+            detailPanel.appendChild(subtitle);
+            detailPanel.appendChild(table);
+        }
+
+        function matchingVehicle(results, registration) {
+            var i;
+            for (i = 0; i < results.length; i += 1) {
+                if (normaliseRegistration(results[i].reg) === registration) {
+                    return results[i];
+                }
+            }
+            return null;
+        }
+
+        function updateNoPosition(message) {
+            setField("position", message || "No live position available.");
+            setField("heading", "Not available");
+            setField("updated", "Not available");
+        }
+
+        function loadPosition(vehicleId, token) {
+            requestJSON(API_ROOT + "vehicles.json?id=" + encodeURIComponent(vehicleId), function (positions) {
+                var position;
+                var coordinates;
+                if (!isCurrent(token)) {
+                    return;
+                }
+                if (!positions || !positions.length) {
+                    updateNoPosition("No live position available.");
+                    return;
+                }
+                position = positions[0];
+                coordinates = position.coordinates;
+                if (!coordinates || coordinates.length < 2) {
+                    updateNoPosition("No live position available.");
+                    return;
+                }
+                setField("position", coordinates[1] + ", " + coordinates[0]);
+                setField("heading", typeof position.heading === "number" ? position.heading + "°" : "Not available");
+                setField("updated", position.datetime || "Not available");
+            }, function (reason) {
+                if (!isCurrent(token)) {
+                    return;
+                }
+                updateNoPosition("Live position unavailable (" + reason + ").");
+            });
+        }
+
+        function beginPolling(vehicleId, token) {
+            stopPolling();
+            pollTimer = window.setInterval(function () {
+                if (!isCurrent(token)) {
+                    stopPolling();
+                    return;
+                }
+                loadPosition(vehicleId, token);
+            }, 30000);
+        }
+
+        function loadVehicle(registration, token) {
+            requestJSON(API_ROOT + "api/vehicles/?search=" + encodeURIComponent(registration), function (data) {
+                var vehicle;
+                if (!isCurrent(token)) {
+                    return;
+                }
+                vehicle = matchingVehicle(data.results || [], registration);
+                if (!vehicle) {
+                    setField("fleet", "No Bus Times vehicle record found.");
+                    setField("operator", "Not available");
+                    setField("type", "Not available");
+                    updateNoPosition("No live position available.");
+                    return;
+                }
+                setField("registration", displayRegistration(vehicle.reg || registration));
+                setField("fleet", vehicle.fleet_number || vehicle.fleet_code || "Not available");
+                setField("operator", vehicle.operator && vehicle.operator.name ? vehicle.operator.name : "Not available");
+                setField("type", vehicle.vehicle_type && vehicle.vehicle_type.name ? vehicle.vehicle_type.name : "Not available");
+                loadPosition(vehicle.id, token);
+                beginPolling(vehicle.id, token);
+            }, function (reason) {
+                if (!isCurrent(token)) {
+                    return;
+                }
+                setField("fleet", "Vehicle lookup unavailable (" + reason + ").");
+                setField("operator", "Not available");
+                setField("type", "Not available");
+                updateNoPosition("No live position available.");
+            });
+        }
+
+        function close() {
+            var detailPanel = panel();
+            requestId += 1;
+            currentRegistration = "";
+            stopPolling();
+            if (detailPanel) {
+                detailPanel.innerHTML = "";
+                detailPanel.className = "is-hidden";
+            }
+        }
+
+        function track(registration) {
+            close();
+            requestId += 1;
+            currentRegistration = normaliseRegistration(registration);
+            renderPanel(currentRegistration);
+            if (!currentRegistration) {
+                setField("fleet", "TfL did not provide a vehicle registration.");
+                setField("operator", "Not available");
+                setField("type", "Not available");
+                updateNoPosition("No live position available.");
+                return;
+            }
+            loadVehicle(currentRegistration, requestId);
+        }
+
+        return {
+            track: track
+        };
+    }());
+
     function renderArrivals(items) {
-        var table, header, body, row, route, destination, due, i, item;
+        var table, header, body, row, route, destination, due, tracking, trackButton, i, item;
         clearArrivals();
         if (!items.length) {
             setStatus("No buses are currently predicted for this stop.", false);
@@ -241,7 +474,7 @@
 
         table = document.createElement("table");
         header = document.createElement("thead");
-        header.innerHTML = "<tr><th class=\"route\">Route</th><th class=\"destination\">Towards</th><th class=\"due\">Due</th></tr>";
+        header.innerHTML = "<tr><th class=\"route\">Route</th><th class=\"destination\">Towards</th><th class=\"due\">Due</th><th class=\"track\">Track</th></tr>";
         table.appendChild(header);
         body = document.createElement("tbody");
         for (i = 0; i < items.length; i += 1) {
@@ -250,15 +483,28 @@
             route = document.createElement("td");
             destination = document.createElement("td");
             due = document.createElement("td");
+            tracking = document.createElement("td");
+            trackButton = document.createElement("button");
             route.className = "route";
             destination.className = "destination";
             due.className = "due";
+            tracking.className = "track";
+            trackButton.type = "button";
+            trackButton.className = "track-button";
             text(route, item.lineName || item.lineId || "?");
             text(destination, item.destinationName || item.towards || "Destination unavailable");
             text(due, dueText(item.timeToStation));
+            text(trackButton, "Track");
+            (function (prediction) {
+                trackButton.onclick = function () {
+                    VehicleTracker.track(prediction.vehicleId);
+                };
+            }(item));
+            tracking.appendChild(trackButton);
             row.appendChild(route);
             row.appendChild(destination);
             row.appendChild(due);
+            row.appendChild(tracking);
             body.appendChild(row);
         }
         table.appendChild(body);

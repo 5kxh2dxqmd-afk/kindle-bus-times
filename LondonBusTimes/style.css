@@ -112,6 +112,43 @@ button:active { background: #000; color: #fff; }
 
 .result-name { font-weight: bold; }
 
+#vehicle-detail {
+    margin: 7px 0 10px;
+    padding: 10px 12px;
+    border: 3px solid #000;
+}
+
+#vehicle-detail h2 {
+    margin: 0 0 5px;
+    font-size: 25px;
+}
+
+.vehicle-subtitle {
+    margin-bottom: 8px;
+    font-size: 18px;
+}
+
+.vehicle-close {
+    float: right;
+    margin: -4px 0 0;
+}
+
+.vehicle-data {
+    width: 100%;
+    margin: 5px 0;
+    border-collapse: collapse;
+    table-layout: auto;
+    font-size: 17px;
+}
+
+.vehicle-data th, .vehicle-data td {
+    padding: 4px 2px;
+    border: 0;
+    text-align: left;
+}
+
+.vehicle-data th { width: 135px; font-weight: bold; }
+
 #arrivals-heading {
     margin-top: 10px;
     padding: 4px 0;
@@ -151,8 +188,10 @@ th, td {
 th { border-top: 2px solid #000; }
 
 .route { width: 16%; font-size: 29px; font-weight: bold; }
-.destination { width: 49%; }
-.due { width: 35%; text-align: right; white-space: nowrap; font-size: 22px; font-weight: bold; }
+.destination { width: 40%; }
+.due { width: 28%; text-align: right; white-space: nowrap; font-size: 22px; font-weight: bold; }
+.track { width: 16%; text-align: right; }
+.track-button { min-height: 32px; margin: 0; padding: 4px 8px; font-size: 15px; }
 
 #footer {
     margin-top: 10px;
@@ -198,6 +237,8 @@ th { border-top: 2px solid #000; }
     #stop-name { font-size: 19px; }
     input { width: 205px; }
     .route { width: 17%; font-size: 25px; }
-    .destination { width: 48%; }
-    .due { width: 35%; font-size: 19px; }
+    .destination { width: 40%; }
+    .due { width: 28%; font-size: 19px; }
+    .track { width: 15%; }
+    .track-button { padding: 4px 6px; font-size: 14px; }
 }
