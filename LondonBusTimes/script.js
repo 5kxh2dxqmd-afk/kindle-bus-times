@@ -5,6 +5,8 @@
     var DEFAULT_REFRESH_SECONDS = 60;
     var storedStopKey = "londonBusTimes.stopId";
     var storedRefreshKey = "londonBusTimes.refreshSeconds";
+    var storedRecentKey = "londonBusTimes.recentStops";
+    var MAX_RECENT = 5;
     var timer = null;
     var refreshSeconds = DEFAULT_REFRESH_SECONDS;
     var secondsLeft = refreshSeconds;
@@ -132,6 +134,44 @@
         return stop.indicator || "direction not supplied";
     }
 
+    function loadRecents() {
+        var list = [];
+        try {
+            list = JSON.parse(window.localStorage.getItem(storedRecentKey) || "[]");
+        } catch (ignore) {}
+        return (list && typeof list.length === "number") ? list : [];
+    }
+
+    function saveRecent(id, name, towards) {
+        var list = loadRecents();
+        var next = [{ id: id, name: name, towards: towards || "" }];
+        var i;
+        for (i = 0; i < list.length && next.length < MAX_RECENT; i += 1) {
+            if (list[i] && list[i].id && list[i].id !== id) {
+                next.push(list[i]);
+            }
+        }
+        try {
+            window.localStorage.setItem(storedRecentKey, JSON.stringify(next));
+        } catch (ignore) {}
+    }
+
+    function renderRecents() {
+        var list = loadRecents();
+        var box = byId("recent-list");
+        var i;
+        box.innerHTML = "";
+        byId("recent-stops").className = list.length ? "" : "is-hidden";
+        for (i = 0; i < list.length; i += 1) {
+            (function (item) {
+                addButton(box, "stop-choice", item.name || "Bus stop", item.towards ? "towards " + item.towards : item.id, function () {
+                    byId("stop-id").value = item.id;
+                    resolveStop(item.id);
+                });
+            }(list[i]));
+        }
+    }
+
     function useIndividualStop(stop) {
         activeStopId = normaliseStopId(stop.id || stop.naptanId);
         activeStopName = stop.commonName || stop.name || "TfL stop " + activeStopId;
@@ -139,6 +179,7 @@
         try {
             window.localStorage.setItem(storedStopKey, activeStopId);
         } catch (ignore) {}
+        saveRecent(activeStopId, activeStopName, directionFor(stop));
         clearSearchResults();
         setPickerVisible(false);
         text(byId("stop-name"), activeStopName + " (" + activeStopId + ")");
@@ -600,6 +641,7 @@
     }
 
     function changeStop() {
+        renderRecents();
         setPickerVisible(true);
         setStatus("Search for a new stop, or enter its TfL stop ID.", false);
     }
@@ -667,7 +709,10 @@
         };
         updateRefreshSummary();
         updateCountdown();
-        if (savedStop) {
+        renderRecents();
+        if (loadRecents().length) {
+            setStatus("Pick a recent stop, or search for a new one.", false);
+        } else if (savedStop) {
             resolveStop(savedStop);
         }
     }
