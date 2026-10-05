@@ -21,16 +21,15 @@
                 <div class="picker-title">Recent stops</div>
                 <div id="recent-list"></div>
             </div>
-            <div class="picker-title">1. Find your boarding stop</div>
-            <div id="search-controls" class="input-row">
-                <label for="stop-search">Stop name or 5-digit code</label>
-                <input id="stop-search" type="text" autocomplete="off" placeholder="e.g. Victoria or 73231">
-                <button id="search-stop" type="button">Search</button>
-            </div>
-            <div id="controls" class="input-row secondary-row">
-                <label for="stop-id">Already know a TfL stop ID?</label>
-                <input id="stop-id" type="text" autocapitalize="characters" autocomplete="off" placeholder="e.g. 490008660N">
-                <button id="save-stop" type="button">Use stop ID</button>
+            <button id="add-stop" class="add-stop" type="button">+ Add new stop</button>
+            <div id="add-panel" class="is-hidden">
+                <div class="picker-title">Add a new stop</div>
+                <div id="search-controls" class="input-row">
+                    <label for="stop-search">Stop name, 5-digit code or stop ID</label>
+                    <input id="stop-search" type="text" autocapitalize="off" autocomplete="off" placeholder="e.g. Victoria, 73231 or 490008660N">
+                    <button id="search-stop" type="button">Search</button>
+                    <button id="cancel-add" type="button">Cancel</button>
+                </div>
             </div>
         </div>
         <div id="search-results"></div>

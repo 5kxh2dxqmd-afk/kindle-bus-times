@@ -242,3 +242,68 @@ th { border-top: 2px solid #000; }
     .track { width: 15%; }
     .track-button { padding: 4px 6px; font-size: 14px; }
 }
+
+#vehicle-map {
+    margin: 6px 0 8px;
+}
+
+#vehicle-summary {
+    margin-bottom: 6px;
+    font-size: 19px;
+    font-weight: bold;
+}
+
+#vehicle-plot {
+    margin: 4px 0 2px;
+}
+
+#vehicle-stops {
+    margin: 6px 0 2px;
+    font-size: 17px;
+}
+
+.stop-row {
+    padding: 2px 0;
+}
+
+.stop-num {
+    display: inline-block;
+    min-width: 26px;
+    margin-right: 8px;
+    border: 2px solid #000;
+    border-radius: 14px;
+    text-align: center;
+    font-size: 14px;
+    font-weight: bold;
+}
+
+.is-yours { font-weight: bold; }
+
+.is-yours .stop-num {
+    background: #000;
+    color: #fff;
+}
+
+.bus-row {
+    margin: 3px 0;
+    padding: 3px 0;
+    border-top: 2px dashed #000;
+    border-bottom: 2px dashed #000;
+    font-weight: bold;
+}
+
+.add-stop {
+    display: block;
+    width: 100%;
+    margin: 8px 0 4px;
+    padding: 10px;
+    text-align: center;
+}
+
+.add-stop.is-hidden { display: none; }
+
+#add-panel {
+    margin-top: 6px;
+    padding-top: 7px;
+    border-top: 1px solid #000;
+}
