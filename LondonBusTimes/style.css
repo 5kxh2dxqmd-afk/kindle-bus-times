@@ -307,3 +307,75 @@ th { border-top: 2px solid #000; }
     padding-top: 7px;
     border-top: 1px solid #000;
 }
+
+#filter-bar {
+    margin: 4px 0;
+}
+
+#filter-toggle {
+    margin-left: 0;
+}
+
+#filter-panel {
+    margin: 6px 0;
+    padding: 8px 10px;
+    border: 2px solid #000;
+}
+
+.route-chip {
+    min-width: 56px;
+    margin: 4px 8px 4px 0;
+    padding: 8px 14px;
+    font-size: 20px;
+}
+
+.route-chip.is-on {
+    background: #000;
+    color: #fff;
+}
+
+.filter-actions {
+    margin-top: 4px;
+}
+
+.filter-actions button {
+    margin-left: 0;
+    margin-right: 8px;
+}
+
+#disruption {
+    margin: 6px 0;
+    padding: 7px 10px;
+    border: 3px solid #000;
+}
+
+.disruption-title {
+    margin-bottom: 3px;
+    font-size: 16px;
+    font-weight: bold;
+    text-transform: uppercase;
+}
+
+.disruption-row {
+    padding: 2px 0;
+    font-size: 16px;
+}
+
+.disruption-name {
+    font-weight: bold;
+}
+
+#vehicle-route {
+    margin: 2px 0 4px;
+    font-size: 20px;
+    font-weight: bold;
+}
+
+#update-text {
+    margin: 4px 0;
+    font-size: 16px;
+}
+
+.update-title {
+    margin-top: 10px;
+}

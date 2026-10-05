@@ -39,6 +39,11 @@
             <button id="refresh" type="button">Refresh now</button>
         </div>
         <div id="status" class="notice">Search for a bus stop to begin.</div>
+        <div id="filter-bar" class="is-hidden">
+            <button id="filter-toggle" type="button">Routes: all</button>
+        </div>
+        <div id="filter-panel" class="is-hidden"></div>
+        <div id="disruption" class="is-hidden"></div>
         <div id="vehicle-detail" class="is-hidden"></div>
         <div id="arrivals"></div>
 
@@ -59,6 +64,9 @@
             </select>
             <button id="save-settings" type="button">Save setting</button>
             <div class="settings-note">A shorter interval uses more Wi-Fi and battery.</div>
+            <div class="picker-title update-title">Updates</div>
+            <div id="update-text"></div>
+            <button id="check-update" type="button">Check for updates</button>
         </div>
     </div>
 </body>

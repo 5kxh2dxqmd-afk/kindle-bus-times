@@ -13,6 +13,18 @@
     var loading = false;
     var activeStopId = "";
     var activeStopName = "";
+    var APP_VERSION = "1.1.0";
+    var VERSION_URL = "https://raw.githubusercontent.com/5kxh2dxqmd-afk/kindle-bus-times/master/version.json";
+    var storedFilterKey = "londonBusTimes.routeFilters";
+    var STALE_LIMIT_SECONDS = 1800;
+    var STATUS_REFRESH_MS = 300000;
+    var lastArrivals = { stopId: "", items: [], fetchedAt: 0 };
+    var showingStale = false;
+    var activeStopLines = [];
+    var pickerShown = true;
+    var retries = 0;
+    var statusKey = "";
+    var statusFetchedAt = 0;
 
     function byId(id) {
         return document.getElementById(id);
@@ -33,6 +45,32 @@
         var status = byId("status");
         text(status, message);
         status.className = isError ? "notice error" : "notice";
+    }
+
+    function clockLabel(time) {
+        var date = new Date(time);
+        var hours = date.getHours();
+        var minutes = date.getMinutes();
+        return (hours < 10 ? "0" : "") + hours + ":" + (minutes < 10 ? "0" : "") + minutes;
+    }
+
+    function compareVersions(a, b) {
+        var partsA = String(a).split(".");
+        var partsB = String(b).split(".");
+        var i, x, y;
+        for (i = 0; i < 3; i += 1) {
+            x = parseInt(partsA[i], 10) || 0;
+            y = parseInt(partsB[i], 10) || 0;
+            if (x !== y) {
+                return x < y ? -1 : 1;
+            }
+        }
+        return 0;
+    }
+
+    function shorten(value, max) {
+        var clean = String(value || "").replace(/\s+/g, " ");
+        return clean.length > max ? clean.substring(0, max - 1) + "\u2026" : clean;
     }
 
     function dueText(seconds) {
@@ -73,8 +111,10 @@
     }
 
     function setPickerVisible(visible) {
+        pickerShown = visible;
         byId("stop-picker").className = visible ? "" : "is-hidden";
         byId("change-stop").className = visible ? "is-hidden" : "";
+        updateFilterBar();
     }
 
     function apiRequest(url, onSuccess, onFailure) {
@@ -150,6 +190,18 @@
             }
         }
         return "";
+    }
+
+    function linesOf(stop) {
+        var raw = stop.lines || [];
+        var result = [];
+        var i;
+        for (i = 0; i < raw.length; i += 1) {
+            if (raw[i] && (raw[i].name || raw[i].id)) {
+                result.push({ id: raw[i].id || String(raw[i].name).toLowerCase(), name: raw[i].name || raw[i].id });
+            }
+        }
+        return result;
     }
 
     function stopDetail(towards, indicator, id) {
@@ -292,6 +344,13 @@
         }
         activeStopId = id;
         activeStopName = stop.commonName || stop.name || "TfL stop " + activeStopId;
+        activeStopLines = linesOf(stop);
+        showingStale = false;
+        retries = 0;
+        statusKey = "";
+        statusFetchedAt = 0;
+        showDisruptions([]);
+        byId("filter-panel").className = "is-hidden";
         try {
             window.localStorage.setItem(storedStopKey, activeStopId);
         } catch (ignore) {}
@@ -448,6 +507,15 @@
         var context = null;
         var lastBus = null;
         var positionNote = "";
+        var routeName = "";
+        var destinationName = "";
+
+        function setRouteLine() {
+            var node = byId("vehicle-route");
+            if (node) {
+                text(node, routeName ? (destinationName ? routeName + " to " + destinationName : "Route " + routeName) : "");
+            }
+        }
 
         function toRadians(degrees) {
             return degrees * Math.PI / 180;
@@ -617,6 +685,18 @@
             return indexes;
         }
 
+        function drawBusLabel(svg, busX, label) {
+            var tagWidth = routeName ? Math.max(28, routeName.length * 10 + 14) : 0;
+            var gap = routeName ? 7 : 0;
+            var total = tagWidth + gap + label.length * 7.6;
+            var left = Math.max(6, Math.min(VIEW_WIDTH - 6 - total, busX - total / 2));
+            if (routeName) {
+                svgEl("rect", { x: round1(left), y: 22, width: round1(tagWidth), height: 22, rx: 4, fill: "#000" }, svg);
+                svgText(svg, left + tagWidth / 2, 38, routeName, 15, "middle", "bold", "#fff");
+            }
+            svgText(svg, left + tagWidth + gap, 38, label, 14, "start", "bold");
+        }
+
         function drawPlot(markers, stopIndex, progress, straight) {
             var plot = byId("vehicle-plot");
             var count = markers.length;
@@ -695,7 +775,7 @@
             svgEl("circle", { cx: 11, cy: -4, r: 1.5, fill: "#fff" }, bus);
 
             label = straight < AT_STOP_METRES ? "At your stop" : distanceLabel(straight) + " away";
-            words(svg, Math.max(50, Math.min(590, busX)), 38, label, 14, "bold");
+            drawBusLabel(svg, busX, label);
         }
 
         function drawList(stops, markers, stopIndex, progress, straight) {
@@ -817,6 +897,9 @@
             lastBus = null;
             positionNote = "";
             clearDrawing();
+            routeName = prediction && (prediction.lineName || prediction.lineId) ? String(prediction.lineName || prediction.lineId) : "";
+            destinationName = prediction && prediction.destinationName ? String(prediction.destinationName) : "";
+            setRouteLine();
             if (!lineId || !direction || !wantedId) {
                 setSummary("Route map unavailable: TfL did not say which route or direction this bus is on.");
                 return;
@@ -959,6 +1042,7 @@
             var subtitle = document.createElement("div");
             var table = document.createElement("table");
             var mapBox = document.createElement("div");
+            var mapRoute = document.createElement("div");
             var mapSummary = document.createElement("div");
             var mapPlot = document.createElement("div");
             var mapStops = document.createElement("div");
@@ -985,10 +1069,12 @@
             detailPanel.appendChild(closeButton);
             detailPanel.appendChild(title);
             mapBox.id = "vehicle-map";
+            mapRoute.id = "vehicle-route";
             mapSummary.id = "vehicle-summary";
             mapPlot.id = "vehicle-plot";
             mapPlot.className = "is-hidden";
             mapStops.id = "vehicle-stops";
+            mapBox.appendChild(mapRoute);
             mapBox.appendChild(mapSummary);
             mapBox.appendChild(mapPlot);
             mapBox.appendChild(mapStops);
@@ -1122,11 +1208,292 @@
         };
     }());
 
-    function renderArrivals(items) {
+    function loadFilters() {
+        var data = {};
+        try {
+            data = JSON.parse(window.localStorage.getItem(storedFilterKey) || "{}");
+        } catch (ignore) {}
+        return (data && typeof data === "object") ? data : {};
+    }
+
+    function selectedRoutes() {
+        var list = loadFilters()[activeStopId];
+        return (list && typeof list.length === "number") ? list : [];
+    }
+
+    function saveSelectedRoutes(list) {
+        var data = loadFilters();
+        if (list.length) {
+            data[activeStopId] = list;
+        } else {
+            delete data[activeStopId];
+        }
+        try {
+            window.localStorage.setItem(storedFilterKey, JSON.stringify(data));
+        } catch (ignore) {}
+    }
+
+    function indexOfRoute(list, name) {
+        var i;
+        for (i = 0; i < list.length; i += 1) {
+            if (String(list[i]).toUpperCase() === String(name).toUpperCase()) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    function knownRoutes() {
+        var names = [];
+        var chosen = selectedRoutes();
+        var i;
+        function add(value) {
+            if (value && indexOfRoute(names, value) < 0) {
+                names.push(String(value));
+            }
+        }
+        for (i = 0; i < activeStopLines.length; i += 1) {
+            add(activeStopLines[i].name);
+        }
+        if (lastArrivals.stopId === activeStopId) {
+            for (i = 0; i < lastArrivals.items.length; i += 1) {
+                add(lastArrivals.items[i].lineName || lastArrivals.items[i].lineId);
+            }
+        }
+        for (i = 0; i < chosen.length; i += 1) {
+            add(chosen[i]);
+        }
+        names.sort(function (a, b) {
+            var na = parseInt(a, 10);
+            var nb = parseInt(b, 10);
+            if (!isNaN(na) && !isNaN(nb) && na !== nb) {
+                return na - nb;
+            }
+            if (isNaN(na) !== isNaN(nb)) {
+                return isNaN(na) ? 1 : -1;
+            }
+            return a < b ? -1 : (a > b ? 1 : 0);
+        });
+        return names;
+    }
+
+    function lineIdFor(name) {
+        var i;
+        for (i = 0; i < activeStopLines.length; i += 1) {
+            if (String(activeStopLines[i].name).toUpperCase() === String(name).toUpperCase() && activeStopLines[i].id) {
+                return String(activeStopLines[i].id);
+            }
+        }
+        if (lastArrivals.stopId === activeStopId) {
+            for (i = 0; i < lastArrivals.items.length; i += 1) {
+                if (String(lastArrivals.items[i].lineName).toUpperCase() === String(name).toUpperCase() && lastArrivals.items[i].lineId) {
+                    return String(lastArrivals.items[i].lineId);
+                }
+            }
+        }
+        return String(name).toLowerCase();
+    }
+
+    function updateFilterBar() {
+        var bar = byId("filter-bar");
+        var selected;
+        if (!bar) {
+            return;
+        }
+        if (!activeStopId || pickerShown) {
+            bar.className = "is-hidden";
+            byId("filter-panel").className = "is-hidden";
+            return;
+        }
+        selected = selectedRoutes();
+        text(byId("filter-toggle"), selected.length ? "Routes: " + selected.join(", ") : "Routes: all");
+        bar.className = "";
+    }
+
+    function showDisruptions(list) {
+        var box = byId("disruption");
+        var title = document.createElement("div");
+        var shown = Math.min(list.length, 4);
+        var i, row, name;
+        box.innerHTML = "";
+        if (!list.length) {
+            box.className = "is-hidden";
+            return;
+        }
+        title.className = "disruption-title";
+        text(title, "Service alerts");
+        box.appendChild(title);
+        for (i = 0; i < shown; i += 1) {
+            row = document.createElement("div");
+            name = document.createElement("span");
+            row.className = "disruption-row";
+            name.className = "disruption-name";
+            text(name, list[i].name + ": " + list[i].description);
+            row.appendChild(name);
+            if (list[i].reason) {
+                row.appendChild(document.createTextNode(" " + list[i].reason));
+            }
+            box.appendChild(row);
+        }
+        if (list.length > shown) {
+            row = document.createElement("div");
+            row.className = "disruption-row";
+            text(row, "+" + (list.length - shown) + " more routes affected");
+            box.appendChild(row);
+        }
+        box.className = "";
+    }
+
+    function refreshDisruptions() {
+        var names = selectedRoutes();
+        var ids = [];
+        var stopId = activeStopId;
+        var key, i;
+        if (!names.length) {
+            names = knownRoutes();
+        }
+        for (i = 0; i < names.length && ids.length < 15; i += 1) {
+            ids.push(encodeURIComponent(lineIdFor(names[i])));
+        }
+        if (!stopId || !ids.length) {
+            showDisruptions([]);
+            return;
+        }
+        key = stopId + "|" + ids.join(",");
+        if (key === statusKey && new Date().getTime() - statusFetchedAt < STATUS_REFRESH_MS) {
+            return;
+        }
+        statusKey = key;
+        statusFetchedAt = new Date().getTime();
+        apiRequest(TFL_BASE + "Line/" + ids.join(",") + "/Status", function (lines) {
+            var found = [];
+            var a, b, statuses, status, description;
+            if (key !== statusKey || !lines || typeof lines.length !== "number") {
+                return;
+            }
+            for (a = 0; a < lines.length; a += 1) {
+                statuses = lines[a].lineStatuses || [];
+                for (b = 0; b < statuses.length; b += 1) {
+                    status = statuses[b];
+                    description = status.statusSeverityDescription || "Disruption";
+                    if (status.statusSeverity === 10 || description === "Good Service" || description === "No Issues") {
+                        continue;
+                    }
+                    found.push({ name: lines[a].name || lines[a].id, description: description, reason: shorten(String(status.reason || "").replace(/^[A-Za-z0-9]{1,5}:\s+/, ""), 150) });
+                    break;
+                }
+            }
+            showDisruptions(found);
+        }, function () {
+            statusFetchedAt = 0;
+        });
+    }
+
+    function afterFilterChange() {
+        updateFilterBar();
+        renderFilterPanel();
+        if (lastArrivals.stopId === activeStopId) {
+            displayArrivals(showingStale);
+        }
+        statusFetchedAt = 0;
+        refreshDisruptions();
+    }
+
+    function toggleRoute(name) {
+        var selected = selectedRoutes().slice(0);
+        var at = indexOfRoute(selected, name);
+        if (at >= 0) {
+            selected.splice(at, 1);
+        } else {
+            selected.push(name);
+        }
+        saveSelectedRoutes(selected);
+        afterFilterChange();
+    }
+
+    function renderFilterPanel() {
+        var holder = byId("filter-panel");
+        var names = knownRoutes();
+        var selected = selectedRoutes();
+        var title = document.createElement("div");
+        var chips = document.createElement("div");
+        var actions = document.createElement("div");
+        var all = document.createElement("button");
+        var done = document.createElement("button");
+        var i;
+        holder.innerHTML = "";
+        title.className = "picker-title";
+        text(title, "Show only these routes");
+        holder.appendChild(title);
+        if (!names.length) {
+            chips.className = "search-help";
+            text(chips, "Routes appear here once arrivals have loaded. Refresh, then try again.");
+        }
+        for (i = 0; i < names.length; i += 1) {
+            (function (name) {
+                var chip = document.createElement("button");
+                chip.type = "button";
+                chip.className = indexOfRoute(selected, name) >= 0 ? "route-chip is-on" : "route-chip";
+                text(chip, name);
+                chip.onclick = function () {
+                    toggleRoute(name);
+                };
+                chips.appendChild(chip);
+            }(names[i]));
+        }
+        holder.appendChild(chips);
+        actions.className = "filter-actions";
+        all.type = "button";
+        done.type = "button";
+        text(all, "Show all routes");
+        text(done, "Done");
+        all.onclick = function () {
+            saveSelectedRoutes([]);
+            afterFilterChange();
+        };
+        done.onclick = function () {
+            holder.className = "is-hidden";
+        };
+        actions.appendChild(all);
+        actions.appendChild(done);
+        holder.appendChild(actions);
+    }
+
+    function toggleFilterPanel() {
+        var holder = byId("filter-panel");
+        if (holder.className === "is-hidden") {
+            renderFilterPanel();
+            holder.className = "";
+        } else {
+            holder.className = "is-hidden";
+        }
+    }
+
+    function displayArrivals(stale) {
+        var items = lastArrivals.items;
+        var elapsed = stale ? Math.max(0, Math.floor((new Date().getTime() - lastArrivals.fetchedAt) / 1000)) : 0;
+        var selected = selectedRoutes();
+        var shown = [];
+        var hidden = 0;
+        var i;
+        for (i = 0; i < items.length; i += 1) {
+            if (items[i].timeToStation - elapsed < -60) {
+                continue;
+            }
+            if (selected.length && indexOfRoute(selected, items[i].lineName || items[i].lineId) < 0) {
+                hidden += 1;
+                continue;
+            }
+            shown.push(items[i]);
+        }
+        renderArrivals(shown, elapsed, hidden);
+    }
+
+    function renderArrivals(items, elapsed, hidden) {
         var table, header, body, row, route, destination, due, tracking, trackButton, i, item;
         clearArrivals();
         if (!items.length) {
-            setStatus("No buses are currently predicted for this stop.", false);
+            setStatus(hidden ? "No buses for your selected routes right now (" + hidden + " hidden by the route filter)." : "No buses are currently predicted for this stop.", false);
             return;
         }
 
@@ -1151,7 +1518,7 @@
             trackButton.className = "track-button";
             text(route, item.lineName || item.lineId || "?");
             text(destination, item.destinationName || item.towards || "Destination unavailable");
-            text(due, dueText(item.timeToStation));
+            text(due, dueText(item.timeToStation - (elapsed || 0)));
             text(trackButton, "Track");
             (function (prediction) {
                 trackButton.onclick = function () {
@@ -1167,7 +1534,7 @@
         }
         table.appendChild(body);
         byId("arrivals").appendChild(table);
-        setStatus(items.length + (items.length === 1 ? " bus prediction." : " bus predictions."), false);
+        setStatus(items.length + (items.length === 1 ? " bus prediction." : " bus predictions.") + (hidden ? " " + hidden + " hidden by route filter." : ""), false);
     }
 
     function updateCountdown() {
@@ -1190,6 +1557,21 @@
         }, 1000);
     }
 
+    function arrivalsFailed(message) {
+        var age;
+        if (lastArrivals.stopId === activeStopId && lastArrivals.items.length) {
+            age = (new Date().getTime() - lastArrivals.fetchedAt) / 1000;
+            if (age <= STALE_LIMIT_SECONDS) {
+                showingStale = true;
+                displayArrivals(true);
+                setStatus(message + " Showing the last arrivals from " + clockLabel(lastArrivals.fetchedAt) + ".", true);
+                return;
+            }
+        }
+        clearArrivals();
+        setStatus(message, true);
+    }
+
     function loadArrivals() {
         var stopId = activeStopId;
         var request;
@@ -1210,41 +1592,69 @@
                 return;
             }
             loading = false;
+            if (stopId !== activeStopId) {
+                loadArrivals();
+                return;
+            }
             if (request.status < 200 || request.status >= 300) {
-                clearArrivals();
-                setStatus("TfL could not load this stop (HTTP " + request.status + "). Check the stop ID and connection.", true);
+                arrivalsFailed("TfL could not load this stop (HTTP " + request.status + "). Check the stop ID and connection.");
                 beginCountdown();
                 return;
             }
             try {
                 data = JSON.parse(request.responseText);
             } catch (ignore) {
-                clearArrivals();
-                setStatus("TfL sent an unreadable response. Try Refresh now.", true);
+                arrivalsFailed("TfL sent an unreadable response. Try Refresh now.");
                 beginCountdown();
                 return;
             }
             if (!data || typeof data.length === "undefined") {
-                clearArrivals();
-                setStatus("TfL did not return bus arrivals for this stop.", true);
+                arrivalsFailed("TfL did not return bus arrivals for this stop.");
                 beginCountdown();
                 return;
             }
             sortArrivals(data);
+            retries = 0;
+            showingStale = false;
+            lastArrivals = { stopId: stopId, items: data, fetchedAt: new Date().getTime() };
             if (data.length && data[0].stationName) {
                 activeStopName = data[0].stationName;
             }
             text(byId("stop-name"), activeStopName + " (" + stopId + ")");
-            renderArrivals(data);
+            displayArrivals(false);
+            updateFilterBar();
+            refreshDisruptions();
             beginCountdown();
         };
         request.onerror = function () {
             loading = false;
-            clearArrivals();
-            setStatus("Network error. Check that Wi-Fi is connected, then refresh.", true);
+            if (retries < 1) {
+                retries += 1;
+                setStatus("Connection hiccup, retrying…", false);
+                window.setTimeout(loadArrivals, 4000);
+                return;
+            }
+            arrivalsFailed("Network error. Check that Wi-Fi is connected, then refresh.");
             beginCountdown();
         };
         request.send(null);
+    }
+
+    function checkForUpdate() {
+        var label = byId("update-text");
+        text(label, "Checking GitHub…");
+        apiRequest(VERSION_URL + "?t=" + new Date().getTime(), function (data) {
+            var latest = data && data.version ? String(data.version) : "";
+            if (!latest) {
+                text(label, "Could not read the latest version.");
+            } else if (compareVersions(APP_VERSION, latest) < 0) {
+                text(label, "Version " + latest + " is available (you have " + APP_VERSION + "). Close this app and run \"London Bus Times - Update\" from your library.");
+            } else {
+                text(label, "Up to date (version " + APP_VERSION + ").");
+            }
+        }, function (reason) {
+            text(label, "Could not check for updates (" + reason + ").");
+        });
     }
 
     function changeStop() {
@@ -1294,7 +1704,13 @@
             secondsLeft = refreshSeconds;
         }
         byId("refresh-interval").value = refreshSeconds;
-        byId("refresh").onclick = loadArrivals;
+        text(byId("update-text"), "Installed version " + APP_VERSION + ".");
+        byId("refresh").onclick = function () {
+            retries = 0;
+            loadArrivals();
+        };
+        byId("filter-toggle").onclick = toggleFilterPanel;
+        byId("check-update").onclick = checkForUpdate;
         byId("search-stop").onclick = searchStops;
         byId("change-stop").onclick = changeStop;
         byId("toggle-settings").onclick = toggleSettings;
