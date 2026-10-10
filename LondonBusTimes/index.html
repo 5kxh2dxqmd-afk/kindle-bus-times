@@ -24,8 +24,12 @@
             <button id="add-stop" class="add-stop" type="button">+ Add new stop</button>
             <div id="add-panel" class="is-hidden">
                 <div class="picker-title">Add a new stop</div>
+                <div id="mode-switch">
+                    <button id="mode-bus" class="mode-button is-on" type="button">Bus stops</button>
+                    <button id="mode-rail" class="mode-button" type="button">Tube &amp; rail</button>
+                </div>
                 <div id="search-controls" class="input-row">
-                    <label for="stop-search">Stop name, 5-digit code or stop ID</label>
+                    <label id="search-label" for="stop-search">Stop name, 5-digit code or stop ID</label>
                     <input id="stop-search" type="text" autocapitalize="off" autocomplete="off" placeholder="e.g. Victoria, 73231 or 490008660N">
                     <button id="search-stop" type="button">Search</button>
                     <button id="cancel-add" type="button">Cancel</button>
@@ -38,7 +42,7 @@
             <span>Live departures</span>
             <button id="refresh" type="button">Refresh now</button>
         </div>
-        <div id="status" class="notice">Search for a bus stop to begin.</div>
+        <div id="status" class="notice">Add a stop or station to begin.</div>
         <div id="filter-bar" class="is-hidden">
             <button id="filter-toggle" type="button">Routes: all</button>
         </div>

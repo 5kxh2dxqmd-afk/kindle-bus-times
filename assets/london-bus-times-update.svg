@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="600" height="600" viewBox="0 0 600 600">
+<rect x="56" y="1" width="488" height="598" rx="56" fill="#000"/>
+<line x1="524" y1="64" x2="524" y2="536" stroke="#fff" stroke-width="6" stroke-linecap="round"/>
+<line x1="100" y1="262" x2="496" y2="262" stroke="#fff" stroke-width="16" stroke-linecap="round"/>
+  <line x1="170" y1="262" x2="170" y2="308" stroke="#fff" stroke-width="11"/>
+  <circle cx="170" cy="336" r="29" fill="#000" stroke="#fff" stroke-width="11"/>
+  <line x1="300" y1="262" x2="300" y2="308" stroke="#fff" stroke-width="11"/>
+  <rect x="269" y="306" width="62" height="62" fill="#fff"/>
+  <g transform="translate(300,250) scale(5.4)">
+    <rect x="-28" y="-29" width="56" height="23" rx="3" fill="#fff"/>
+    <rect x="-24" y="-27" width="6.5" height="6" rx="1" fill="#000"/>
+    <rect x="-24" y="-18" width="6.5" height="6" rx="1" fill="#000"/>
+    <rect x="-16" y="-27" width="6.5" height="6" rx="1" fill="#000"/>
+    <rect x="-16" y="-18" width="6.5" height="6" rx="1" fill="#000"/>
+    <rect x="-8" y="-27" width="6.5" height="6" rx="1" fill="#000"/>
+    <rect x="-8" y="-18" width="6.5" height="6" rx="1" fill="#000"/>
+    <rect x="0" y="-27" width="6.5" height="6" rx="1" fill="#000"/>
+    <rect x="0" y="-18" width="6.5" height="6" rx="1" fill="#000"/>
+    <rect x="8" y="-27" width="6.5" height="6" rx="1" fill="#000"/>
+    <rect x="8" y="-18" width="6.5" height="6" rx="1" fill="#000"/>
+    <rect x="17" y="-27" width="8" height="7" rx="1" fill="#000"/>
+    <rect x="17" y="-17" width="7" height="11" rx="1" fill="#000"/>
+    <line x1="20.5" y1="-17" x2="20.5" y2="-6" stroke="#fff" stroke-width="1"/>
+    <rect x="25" y="-18" width="2" height="5" rx="1" fill="#000"/>
+    <circle cx="-18" cy="-4" r="5" fill="#fff" stroke="#000" stroke-width="1.8"/>
+    <circle cx="-18" cy="-4" r="1.6" fill="#000"/>
+    <circle cx="11" cy="-4" r="5" fill="#fff" stroke="#000" stroke-width="1.8"/>
+    <circle cx="11" cy="-4" r="1.6" fill="#000"/>
+  </g>
+  <circle cx="300" cy="474" r="98" fill="#fff"/>
+  <circle cx="300" cy="474" r="82" fill="none" stroke="#000" stroke-width="7"/>
+  <rect x="286" y="424" width="28" height="42" fill="#000"/>
+  <polygon points="256,462 344,462 300,508" fill="#000"/>
+  <rect x="258" y="518" width="84" height="12" rx="3" fill="#000"/>
+</svg>

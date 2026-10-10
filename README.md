@@ -18,7 +18,36 @@ Tap **Settings** at the bottom of the arrivals board to choose a saved refresh i
 - **Route filter.** Tap **Routes** under the arrivals status to show only the routes you use. The choice is remembered per stop.
 - **Service alerts.** If TfL reports disruption on the routes you are watching, a boxed banner shows it above the arrivals.
 - **Last arrivals kept.** If the network drops, the last arrivals stay on screen with their time ("as of 07:58"), and the due times keep counting down. The app also retries once automatically.
+- **Tube and rail.** Switch **Add new stop** to **Tube & rail** to add a station (Tube, DLR, Overground or Elizabeth line). See below.
 - **Live bus strip.** Tap **Track** on a bus to see it on a straight line of stops, tagged with its route number, with the distance to your stop.
+
+## Tube and rail
+
+Use **+ Add new stop**, tap **Tube & rail**, and search for a station by name or by its ID (for example `940GZZLUVIC`). The app saves the **station** ID (`940G...` for Tube/DLR, `910G...` for Overground and Elizabeth line), so you see every platform and line at that station in one list. Use **Routes** to show only the lines you use, and the service-alert banner works for Tube lines too.
+
+Each row shows the line, the destination and the platform. Tap **Info** on a row for the train's platform, last reported location (for example "At Green Park Platform 3") and due time; it updates whenever the arrivals refresh, and says when the train has gone. Tube and rail trains have no GPS and no registration plate, so there is no map strip for them; that is TfL's data, not a limit of the app.
+
+Tube arrivals use the same TfL endpoint as buses, but I could only test them against recorded-style sample data, not the live service. Overground and Elizabeth line predictions are the least tested.
+
+## Changes in 1.2.0
+
+Bug fixes:
+
+- A network failure used to be reported as "HTTP 0" and could fire two error handlers at once. It is now one clear "Network problem" message with a single automatic retry.
+- Requests that never finished could freeze auto-refresh forever; every request now times out after 20 seconds.
+- Changing stop left the old stop refreshing in the background and its bus tracker polling every 30 seconds. Changing stop now stops the refresh, tracker, alerts and route filter bar for the old stop.
+- **Refresh now** with no stop chosen explains itself instead of doing nothing.
+- If the bus's GPS position is old, the map says so ("Last GPS update was 12 min ago") and the vehicle panel shows when it was reported.
+- Timestamps are parsed by hand so they work on the Kindle's old browser.
+- Service alerts no longer repeat the route name twice, including for Tube lines.
+- The header no longer flips between TfL's per-line station names at Tube interchanges.
+- Removed unused code.
+
+## Library icons
+
+Both scriptlets carry a library icon through the `# Icon:` header line (a base64 PNG read by the Kindle's scriptlet loader). The icons use the same shape as the official KOReader example: a 600x600 PNG with a portrait, book-cover-shaped artwork (about 488x598, rounded corners) centred on a transparent background. A full-square image looks wrong in the library.
+
+The artwork is in `assets/` (SVG source plus the PNG). To change an icon, edit the SVG, export a 600x600 PNG that keeps the transparent sides, and replace the base64 on the `# Icon:` line: `base64 -w0 icon.png` on Linux, or `base64 -i icon.png | tr -d '\n'` on macOS. The line must stay a single line, and the data type must match the image (`image/png` for a PNG). New icons may need a library refresh or a restart to show.
 
 ## Updating
 

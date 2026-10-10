@@ -13,9 +13,12 @@
     var loading = false;
     var activeStopId = "";
     var activeStopName = "";
-    var APP_VERSION = "1.1.0";
+    var APP_VERSION = "1.2.0";
     var VERSION_URL = "https://raw.githubusercontent.com/5kxh2dxqmd-afk/kindle-bus-times/master/version.json";
     var storedFilterKey = "londonBusTimes.routeFilters";
+    var storedModeKey = "londonBusTimes.searchMode";
+    var REQUEST_TIMEOUT_MS = 20000;
+    var searchMode = "bus";
     var STALE_LIMIT_SECONDS = 1800;
     var STATUS_REFRESH_MS = 300000;
     var lastArrivals = { stopId: "", items: [], fetchedAt: 0 };
@@ -54,6 +57,16 @@
         return (hours < 10 ? "0" : "") + hours + ":" + (minutes < 10 ? "0" : "") + minutes;
     }
 
+    function ageLabel(minutes) {
+        if (minutes < 60) {
+            return minutes + " min";
+        }
+        if (minutes < 1440) {
+            return Math.round(minutes / 60) + " h";
+        }
+        return Math.round(minutes / 1440) + (Math.round(minutes / 1440) === 1 ? " day" : " days");
+    }
+
     function compareVersions(a, b) {
         var partsA = String(a).split(".");
         var partsB = String(b).split(".");
@@ -66,6 +79,15 @@
             }
         }
         return 0;
+    }
+
+    function stripReasonPrefix(reason, name) {
+        var message = String(reason || "");
+        var colon = message.indexOf(":");
+        if (colon > 0 && colon <= 40 && message.substring(0, colon).toUpperCase().indexOf(String(name || "").toUpperCase()) === 0) {
+            return message.substring(colon + 1).replace(/^\s+/, "");
+        }
+        return message;
     }
 
     function shorten(value, max) {
@@ -119,6 +141,20 @@
 
     function apiRequest(url, onSuccess, onFailure) {
         var request = new XMLHttpRequest();
+        var finished = false;
+        var watchdog = null;
+
+        function finish(callback, value) {
+            if (finished) {
+                return;
+            }
+            finished = true;
+            if (watchdog !== null) {
+                window.clearTimeout(watchdog);
+            }
+            callback(value);
+        }
+
         request.open("GET", url, true);
         request.setRequestHeader("Accept", "application/json");
         request.onreadystatechange = function () {
@@ -126,21 +162,31 @@
             if (request.readyState !== 4) {
                 return;
             }
+            if (request.status === 0) {
+                finish(onFailure, "network error");
+                return;
+            }
             if (request.status < 200 || request.status >= 300) {
-                onFailure("HTTP " + request.status);
+                finish(onFailure, "HTTP " + request.status);
                 return;
             }
             try {
                 data = JSON.parse(request.responseText);
             } catch (ignore) {
-                onFailure("unreadable response");
+                finish(onFailure, "unreadable response");
                 return;
             }
-            onSuccess(data);
+            finish(onSuccess, data);
         };
         request.onerror = function () {
-            onFailure("network error");
+            finish(onFailure, "network error");
         };
+        watchdog = window.setTimeout(function () {
+            finish(onFailure, "timed out");
+            try {
+                request.abort();
+            } catch (ignore) {}
+        }, REQUEST_TIMEOUT_MS);
         request.send(null);
     }
 
@@ -160,22 +206,48 @@
         parent.appendChild(button);
     }
 
-    function directionFor(stop) {
-        var properties = stop.additionalProperties || [];
-        var i;
-        if (stop.towards) {
-            return stop.towards;
-        }
-        for (i = 0; i < properties.length; i += 1) {
-            if (properties[i].key === "Towards" && properties[i].value) {
-                return properties[i].value;
-            }
-        }
-        return stop.indicator || "direction not supplied";
+    function isGroupId(id) {
+        return (/^(490G|HUB)/i).test(String(id || ""));
     }
 
-    function isGroupId(id) {
-        return (/^[0-9]{3}G/i).test(String(id || ""));
+    function isRailId(id) {
+        return (/^(940G|910G|9400|9100)/i).test(String(id || ""));
+    }
+
+    function isRailStation(stop) {
+        return (/^(940G|910G)/i).test(String(stop.id || stop.naptanId || ""));
+    }
+
+    function modeLabel(stop) {
+        var names = { "tube": "Tube", "dlr": "DLR", "overground": "Overground", "elizabeth-line": "Elizabeth line", "national-rail": "National Rail", "tram": "Tram" };
+        var modes = stop.modes || [];
+        var labels = [];
+        var i;
+        for (i = 0; i < modes.length; i += 1) {
+            if (names[modes[i]]) {
+                labels.push(names[modes[i]]);
+            }
+        }
+        return labels.join(", ");
+    }
+
+    function shortStationName(name) {
+        return String(name || "").replace(/-Underground$/i, "").replace(/\s+(Underground|Rail|DLR|Tram)\s+Station$/i, "");
+    }
+
+    function parseIsoTime(value) {
+        var match = (/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?(?:\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/).exec(String(value || ""));
+        var time, sign, minutes;
+        if (!match) {
+            return NaN;
+        }
+        time = Date.UTC(parseInt(match[1], 10), parseInt(match[2], 10) - 1, parseInt(match[3], 10), parseInt(match[4], 10), parseInt(match[5], 10), parseInt(match[6] || "0", 10));
+        if (match[7] && match[7] !== "Z") {
+            sign = match[7].charAt(0) === "-" ? -1 : 1;
+            minutes = parseInt(match[7].substring(1, 3), 10) * 60 + parseInt(match[7].slice(-2), 10);
+            time -= sign * minutes * 60000;
+        }
+        return time;
     }
 
     function towardsOf(stop) {
@@ -204,8 +276,11 @@
         return result;
     }
 
-    function stopDetail(towards, indicator, id) {
+    function stopDetail(towards, indicator, id, kind) {
         var parts = [];
+        if (kind) {
+            parts.push(kind);
+        }
         if (indicator) {
             parts.push(indicator);
         }
@@ -234,9 +309,9 @@
         return clean;
     }
 
-    function saveRecent(id, name, towards, indicator) {
+    function saveRecent(id, name, towards, indicator, kind) {
         var list = loadRecents();
-        var next = [{ id: id, name: name, towards: towards || "", indicator: indicator || "" }];
+        var next = [{ id: id, name: name, towards: towards || "", indicator: indicator || "", kind: kind || "" }];
         var i;
         if (isGroupId(id)) {
             return;
@@ -259,11 +334,49 @@
         byId("recent-stops").className = list.length ? "" : "is-hidden";
         for (i = 0; i < list.length; i += 1) {
             (function (item) {
-                addButton(box, "stop-choice", item.name || "Bus stop", stopDetail(item.towards, item.indicator, item.id), function () {
+                addButton(box, "stop-choice", item.name || "Bus stop", stopDetail(item.towards, item.indicator, item.id, item.kind), function () {
                     resolveStop(item.id);
                 });
             }(list[i]));
         }
+    }
+
+    function stopCountdown() {
+        if (timer !== null) {
+            window.clearInterval(timer);
+            timer = null;
+        }
+    }
+
+    function leaveActiveStop() {
+        stopCountdown();
+        VehicleTracker.close();
+        TrainInfo.close();
+        showDisruptions([]);
+        byId("filter-panel").className = "is-hidden";
+        statusKey = "";
+        statusFetchedAt = 0;
+        showingStale = false;
+        retries = 0;
+        clearArrivals();
+        activeStopId = "";
+        activeStopName = "";
+        activeStopLines = [];
+        updateFilterBar();
+        updateCountdown();
+    }
+
+    function setSearchMode(mode) {
+        var rail = mode === "rail";
+        searchMode = rail ? "rail" : "bus";
+        try {
+            window.localStorage.setItem(storedModeKey, searchMode);
+        } catch (ignore) {}
+        byId("mode-bus").className = rail ? "mode-button" : "mode-button is-on";
+        byId("mode-rail").className = rail ? "mode-button is-on" : "mode-button";
+        text(byId("search-label"), rail ? "Station name or ID" : "Stop name, 5-digit code or stop ID");
+        byId("stop-search").placeholder = rail ? "e.g. Victoria or 940GZZLUVIC" : "e.g. Victoria, 73231 or 490008660N";
+        clearSearchResults();
     }
 
     function openAddPanel() {
@@ -305,7 +418,9 @@
     function individualStops(stop, found) {
         var children = stop.children || [];
         var i;
-        if (children.length) {
+        if (isRailStation(stop)) {
+            found.push(stop);
+        } else if (children.length) {
             for (i = 0; i < children.length; i += 1) {
                 individualStops(children[i], found);
             }
@@ -325,7 +440,7 @@
         results.appendChild(help);
         for (i = 0; i < stops.length && i < 12; i += 1) {
             (function (stop) {
-                addButton(results, "stop-choice", stop.commonName || stop.name || "Bus stop", stopDetail(towardsOf(stop), stop.indicator, stop.id), function () {
+                addButton(results, "stop-choice", stop.commonName || stop.name || "Bus stop", stopDetail(towardsOf(stop), stop.indicator, stop.id, modeLabel(stop)), function () {
                     useIndividualStop(stop);
                 });
             }(stops[i]));
@@ -334,7 +449,7 @@
 
     function useIndividualStop(stop) {
         var id = normaliseStopId(stop.id || stop.naptanId || "");
-        if (stop.children && stop.children.length) {
+        if (!isRailStation(stop) && stop.children && stop.children.length) {
             showChildStops(stop);
             return;
         }
@@ -342,19 +457,14 @@
             setStatus("That is a stop group, not a boarding stop. Search for the stop by name instead.", true);
             return;
         }
+        leaveActiveStop();
         activeStopId = id;
         activeStopName = stop.commonName || stop.name || "TfL stop " + activeStopId;
         activeStopLines = linesOf(stop);
-        showingStale = false;
-        retries = 0;
-        statusKey = "";
-        statusFetchedAt = 0;
-        showDisruptions([]);
-        byId("filter-panel").className = "is-hidden";
         try {
             window.localStorage.setItem(storedStopKey, activeStopId);
         } catch (ignore) {}
-        saveRecent(activeStopId, activeStopName, towardsOf(stop), stop.indicator);
+        saveRecent(activeStopId, activeStopName, towardsOf(stop), stop.indicator, modeLabel(stop));
         closeAddPanel();
         setPickerVisible(false);
         text(byId("stop-name"), activeStopName + " (" + activeStopId + ")");
@@ -379,13 +489,11 @@
             setStatus("Enter a stop name, code or ID first.", true);
             return;
         }
-        activeStopId = "";
-        activeStopName = "";
-        clearArrivals();
+        leaveActiveStop();
         clearSearchResults();
         setStatus("Checking stop…", false);
         apiRequest(API_ROOT + encodeURIComponent(stopId), function (stop) {
-            if (stop.children && stop.children.length) {
+            if (!isRailStation(stop) && stop.children && stop.children.length) {
                 showChildStops(stop);
                 return;
             }
@@ -462,10 +570,33 @@
         return (/^[0-9]{3}[0-9A-Z]{5,12}$/i).test(query);
     }
 
+    function renderRailMatches(matches) {
+        var results = byId("search-results");
+        var help = document.createElement("div");
+        var i;
+        clearSearchResults();
+        help.className = "search-help";
+        if (!matches.length) {
+            text(help, "No Tube or rail stations matched that search.");
+            results.appendChild(help);
+            return;
+        }
+        text(help, "Tap the station you want.");
+        results.appendChild(help);
+        for (i = 0; i < matches.length; i += 1) {
+            (function (match) {
+                addButton(results, "stop-choice", match.name || "Station", stopDetail("", "", match.id, modeLabel(match)), function () {
+                    resolveStop(match.id);
+                });
+            }(matches[i]));
+        }
+    }
+
     function searchStops() {
         var query = byId("stop-search").value.replace(/^\s+|\s+$/g, "");
+        var rail = searchMode === "rail";
         if (!query) {
-            setStatus("Enter a stop name, 5-digit code or stop ID to search.", true);
+            setStatus(rail ? "Enter a station name or ID to search." : "Enter a stop name, 5-digit code or stop ID to search.", true);
             return;
         }
         if (looksLikeStopId(query)) {
@@ -473,9 +604,14 @@
             return;
         }
         clearSearchResults();
-        setStatus("Searching TfL bus stops…", false);
-        apiRequest(API_ROOT + "Search/" + encodeURIComponent(query) + "?modes=bus&includeHubs=false&maxResults=10", function (data) {
-            expandMatches(data.matches || []);
+        setStatus(rail ? "Searching Tube and rail stations…" : "Searching TfL bus stops…", false);
+        apiRequest(API_ROOT + "Search/" + encodeURIComponent(query) + (rail ? "?modes=tube,dlr,overground,elizabeth-line&includeHubs=false&maxResults=10" : "?modes=bus&includeHubs=false&maxResults=10"), function (data) {
+            if (rail) {
+                renderRailMatches(data.matches || []);
+                setStatus((data.matches || []).length ? "Choose a station." : "No stations found.", false);
+            } else {
+                expandMatches(data.matches || []);
+            }
         }, function (reason) {
             setStatus("TfL search failed (" + reason + ").", true);
         });
@@ -836,6 +972,9 @@
             if (choice.distance > OFF_ROUTE_METRES) {
                 summary = "Bus looks off its usual route (" + distanceLabel(choice.distance) + "). " + summary;
             }
+            if (bus.ageMinutes > 3) {
+                summary += " Last GPS update was " + ageLabel(bus.ageMinutes) + " ago.";
+            }
             markers = markerIndexes(lo, hi, stopIndex);
             setSummary(summary);
             drawList(stops, markers, stopIndex, progress, straight);
@@ -952,7 +1091,7 @@
     }());
 
     var VehicleTracker = (function () {
-        var API_ROOT = "https://bustimes.org/";
+        var BUSTIMES_ROOT = "https://bustimes.org/";
         var requestId = 0;
         var pollTimer = null;
         var currentRegistration = "";
@@ -977,30 +1116,7 @@
         }
 
         function requestJSON(url, onSuccess, onFailure) {
-            var request = new XMLHttpRequest();
-            request.open("GET", url, true);
-            request.setRequestHeader("Accept", "application/json");
-            request.onreadystatechange = function () {
-                var data;
-                if (request.readyState !== 4) {
-                    return;
-                }
-                if (request.status < 200 || request.status >= 300) {
-                    onFailure("HTTP " + request.status);
-                    return;
-                }
-                try {
-                    data = JSON.parse(request.responseText);
-                } catch (ignore) {
-                    onFailure("unreadable response");
-                    return;
-                }
-                onSuccess(data);
-            };
-            request.onerror = function () {
-                onFailure("network error");
-            };
-            request.send(null);
+            apiRequest(url, onSuccess, onFailure);
         }
 
         function panel() {
@@ -1101,9 +1217,11 @@
         }
 
         function loadPosition(vehicleId, token) {
-            requestJSON(API_ROOT + "vehicles.json?id=" + encodeURIComponent(vehicleId), function (positions) {
+            requestJSON(BUSTIMES_ROOT + "vehicles.json?id=" + encodeURIComponent(vehicleId), function (positions) {
                 var position;
                 var coordinates;
+                var reported;
+                var age;
                 if (!isCurrent(token)) {
                     return;
                 }
@@ -1119,8 +1237,10 @@
                 }
                 setField("position", coordinates[1] + ", " + coordinates[0]);
                 setField("heading", typeof position.heading === "number" ? position.heading + "°" : "Not available");
-                setField("updated", position.datetime || "Not available");
-                RouteMap.draw({ lat: coordinates[1], lon: coordinates[0], heading: position.heading });
+                reported = parseIsoTime(position.datetime);
+                age = isNaN(reported) ? 0 : Math.max(0, Math.round((new Date().getTime() - reported) / 60000));
+                setField("updated", isNaN(reported) ? (position.datetime || "Not available") : clockLabel(reported) + (age >= 1 ? " (" + ageLabel(age) + " ago)" : " (just now)"));
+                RouteMap.draw({ lat: coordinates[1], lon: coordinates[0], heading: position.heading, ageMinutes: age });
             }, function (reason) {
                 if (!isCurrent(token)) {
                     return;
@@ -1141,7 +1261,7 @@
         }
 
         function loadVehicle(registration, token) {
-            requestJSON(API_ROOT + "api/vehicles/?search=" + encodeURIComponent(registration), function (data) {
+            requestJSON(BUSTIMES_ROOT + "api/vehicles/?search=" + encodeURIComponent(registration), function (data) {
                 var vehicle;
                 if (!isCurrent(token)) {
                     return;
@@ -1185,6 +1305,7 @@
 
         function track(registration, prediction) {
             var token;
+            TrainInfo.close();
             close();
             requestId += 1;
             token = requestId;
@@ -1204,7 +1325,127 @@
         }
 
         return {
-            track: track
+            track: track,
+            close: close
+        };
+    }());
+
+    /*
+     * TrainInfo: Tube and rail predictions have no GPS and no registration plate, so instead
+     * of the bus strip this shows what TfL reports for the train: platform, last reported
+     * location and due time. It refreshes whenever the station's arrivals refresh.
+     */
+    var TrainInfo = (function () {
+        var shown = null;
+
+        function holder() {
+            return byId("vehicle-detail");
+        }
+
+        function addRow(table, id, label) {
+            var row = document.createElement("tr");
+            var head = document.createElement("th");
+            var cell = document.createElement("td");
+            head.scope = "row";
+            cell.id = "train-" + id;
+            text(head, label);
+            row.appendChild(head);
+            row.appendChild(cell);
+            table.appendChild(row);
+        }
+
+        function setCell(id, value) {
+            text(byId("train-" + id), value);
+        }
+
+        function fill(prediction) {
+            var expected = parseIsoTime(prediction.expectedArrival);
+            var due = dueText(prediction.timeToStation);
+            setCell("line", prediction.lineName || prediction.lineId || "Not available");
+            setCell("train", prediction.vehicleId ? String(prediction.vehicleId) : "Not available");
+            setCell("towards", shortStationName(prediction.destinationName) || prediction.towards || "Not available");
+            setCell("platform", prediction.platformName || "Not available");
+            setCell("location", prediction.currentLocation || "Not reported");
+            setCell("due", isNaN(expected) ? due : due + " (" + clockLabel(expected) + ")");
+            setCell("updated", clockLabel(lastArrivals.fetchedAt));
+        }
+
+        function close() {
+            var panelNode = holder();
+            if (!shown) {
+                return;
+            }
+            shown = null;
+            if (panelNode) {
+                panelNode.innerHTML = "";
+                panelNode.className = "is-hidden";
+            }
+        }
+
+        function show(prediction) {
+            var panelNode = holder();
+            var closeButton = document.createElement("button");
+            var title = document.createElement("h2");
+            var subtitle = document.createElement("div");
+            var table = document.createElement("table");
+            var note = document.createElement("div");
+            if (!panelNode) {
+                return;
+            }
+            VehicleTracker.close();
+            shown = { vehicleId: String(prediction.vehicleId || ""), lineId: String(prediction.lineId || "") };
+            panelNode.innerHTML = "";
+            panelNode.className = "";
+            closeButton.type = "button";
+            closeButton.className = "vehicle-close";
+            text(closeButton, "Close");
+            closeButton.onclick = close;
+            text(title, "Train details");
+            subtitle.className = "vehicle-subtitle";
+            text(subtitle, (prediction.lineName || "Train") + (prediction.vehicleId ? ", train " + prediction.vehicleId : ""));
+            table.className = "vehicle-data";
+            addRow(table, "line", "Line");
+            addRow(table, "train", "Train");
+            addRow(table, "towards", "Towards");
+            addRow(table, "platform", "Platform");
+            addRow(table, "location", "Last seen");
+            addRow(table, "due", "Due");
+            addRow(table, "updated", "Updated");
+            note.className = "vehicle-note";
+            text(note, "Tube and rail trains have no GPS. This is TfL's last reported position, refreshed with the arrivals.");
+            panelNode.appendChild(closeButton);
+            panelNode.appendChild(title);
+            panelNode.appendChild(subtitle);
+            panelNode.appendChild(table);
+            panelNode.appendChild(note);
+            fill(prediction);
+        }
+
+        function update(items) {
+            var found = null;
+            var i;
+            if (!shown) {
+                return;
+            }
+            for (i = 0; i < items.length; i += 1) {
+                if (String(items[i].vehicleId || "") === shown.vehicleId && String(items[i].lineId || "") === shown.lineId) {
+                    found = items[i];
+                    break;
+                }
+            }
+            if (found) {
+                fill(found);
+            } else {
+                setCell("location", "No longer predicted here. It has probably left or moved on.");
+                setCell("due", "Gone");
+                setCell("updated", clockLabel(lastArrivals.fetchedAt));
+            }
+        }
+
+        return {
+            show: show,
+            update: update,
+            close: close
         };
     }());
 
@@ -1379,7 +1620,7 @@
                     if (status.statusSeverity === 10 || description === "Good Service" || description === "No Issues") {
                         continue;
                     }
-                    found.push({ name: lines[a].name || lines[a].id, description: description, reason: shorten(String(status.reason || "").replace(/^[A-Za-z0-9]{1,5}:\s+/, ""), 150) });
+                    found.push({ name: lines[a].name || lines[a].id, description: description, reason: shorten(stripReasonPrefix(status.reason, lines[a].name || lines[a].id), 150) });
                     break;
                 }
             }
@@ -1490,16 +1731,21 @@
     }
 
     function renderArrivals(items, elapsed, hidden) {
-        var table, header, body, row, route, destination, due, tracking, trackButton, i, item;
+        var rail = isRailId(activeStopId);
+        var noun = rail ? "train" : "bus";
+        var table, header, body, row, route, destination, due, tracking, trackButton, platform, i, item;
         clearArrivals();
         if (!items.length) {
-            setStatus(hidden ? "No buses for your selected routes right now (" + hidden + " hidden by the route filter)." : "No buses are currently predicted for this stop.", false);
+            setStatus(hidden ? "No " + noun + "s for your selected routes right now (" + hidden + " hidden by the route filter)." : "No " + noun + "s are currently predicted for this " + (rail ? "station" : "stop") + ".", false);
             return;
         }
 
         table = document.createElement("table");
+        table.className = rail ? "rail" : "";
         header = document.createElement("thead");
-        header.innerHTML = "<tr><th class=\"route\">Route</th><th class=\"destination\">Towards</th><th class=\"due\">Due</th><th class=\"track\">Track</th></tr>";
+        header.innerHTML = rail ?
+                "<tr><th class=\"route line-name\">Line</th><th class=\"destination\">Towards</th><th class=\"due\">Due</th><th class=\"track\">Info</th></tr>" :
+                "<tr><th class=\"route\">Route</th><th class=\"destination\">Towards</th><th class=\"due\">Due</th><th class=\"track\">Track</th></tr>";
         table.appendChild(header);
         body = document.createElement("tbody");
         for (i = 0; i < items.length; i += 1) {
@@ -1510,19 +1756,33 @@
             due = document.createElement("td");
             tracking = document.createElement("td");
             trackButton = document.createElement("button");
-            route.className = "route";
+            route.className = rail ? "route line-name" : "route";
             destination.className = "destination";
             due.className = "due";
             tracking.className = "track";
             trackButton.type = "button";
             trackButton.className = "track-button";
             text(route, item.lineName || item.lineId || "?");
-            text(destination, item.destinationName || item.towards || "Destination unavailable");
+            if (rail) {
+                text(destination, shortStationName(item.destinationName) || item.towards || "Destination unavailable");
+                if (item.platformName) {
+                    platform = document.createElement("div");
+                    platform.className = "platform";
+                    text(platform, item.platformName);
+                    destination.appendChild(platform);
+                }
+            } else {
+                text(destination, item.destinationName || item.towards || "Destination unavailable");
+            }
             text(due, dueText(item.timeToStation - (elapsed || 0)));
-            text(trackButton, "Track");
+            text(trackButton, rail ? "Info" : "Track");
             (function (prediction) {
                 trackButton.onclick = function () {
-                    VehicleTracker.track(prediction.vehicleId, prediction);
+                    if (rail) {
+                        TrainInfo.show(prediction);
+                    } else {
+                        VehicleTracker.track(prediction.vehicleId, prediction);
+                    }
                 };
             }(item));
             tracking.appendChild(trackButton);
@@ -1534,7 +1794,7 @@
         }
         table.appendChild(body);
         byId("arrivals").appendChild(table);
-        setStatus(items.length + (items.length === 1 ? " bus prediction." : " bus predictions.") + (hidden ? " " + hidden + " hidden by route filter." : ""), false);
+        setStatus(items.length + " " + noun + (items.length === 1 ? " prediction." : " predictions.") + (hidden ? " " + hidden + " hidden by route filter." : ""), false);
     }
 
     function updateCountdown() {
@@ -1574,42 +1834,19 @@
 
     function loadArrivals() {
         var stopId = activeStopId;
-        var request;
-        if (!stopId) {
-            return;
-        }
-        if (loading) {
+        if (!stopId || loading) {
             return;
         }
         loading = true;
         setStatus("Updating…", false);
-        request = new XMLHttpRequest();
-        request.open("GET", API_ROOT + encodeURIComponent(stopId) + "/Arrivals", true);
-        request.setRequestHeader("Accept", "application/json");
-        request.onreadystatechange = function () {
-            var data;
-            if (request.readyState !== 4) {
-                return;
-            }
+        apiRequest(API_ROOT + encodeURIComponent(stopId) + "/Arrivals", function (data) {
             loading = false;
             if (stopId !== activeStopId) {
                 loadArrivals();
                 return;
             }
-            if (request.status < 200 || request.status >= 300) {
-                arrivalsFailed("TfL could not load this stop (HTTP " + request.status + "). Check the stop ID and connection.");
-                beginCountdown();
-                return;
-            }
-            try {
-                data = JSON.parse(request.responseText);
-            } catch (ignore) {
-                arrivalsFailed("TfL sent an unreadable response. Try Refresh now.");
-                beginCountdown();
-                return;
-            }
-            if (!data || typeof data.length === "undefined") {
-                arrivalsFailed("TfL did not return bus arrivals for this stop.");
+            if (!data || typeof data.length !== "number") {
+                arrivalsFailed("TfL did not return arrivals for this stop.");
                 beginCountdown();
                 return;
             }
@@ -1617,27 +1854,34 @@
             retries = 0;
             showingStale = false;
             lastArrivals = { stopId: stopId, items: data, fetchedAt: new Date().getTime() };
-            if (data.length && data[0].stationName) {
-                activeStopName = data[0].stationName;
-            }
             text(byId("stop-name"), activeStopName + " (" + stopId + ")");
             displayArrivals(false);
+            TrainInfo.update(data);
             updateFilterBar();
             refreshDisruptions();
             beginCountdown();
-        };
-        request.onerror = function () {
+        }, function (reason) {
+            var networkProblem = reason === "network error" || reason === "timed out";
             loading = false;
-            if (retries < 1) {
+            if (stopId !== activeStopId) {
+                loadArrivals();
+                return;
+            }
+            if (networkProblem && retries < 1) {
                 retries += 1;
                 setStatus("Connection hiccup, retrying…", false);
                 window.setTimeout(loadArrivals, 4000);
                 return;
             }
-            arrivalsFailed("Network error. Check that Wi-Fi is connected, then refresh.");
+            if (networkProblem) {
+                arrivalsFailed("Network problem (" + reason + "). Check that Wi-Fi is connected, then refresh.");
+            } else if (reason === "unreadable response") {
+                arrivalsFailed("TfL sent an unreadable response. Try Refresh now.");
+            } else {
+                arrivalsFailed("TfL could not load this stop (" + reason + "). Check the stop ID and connection.");
+            }
             beginCountdown();
-        };
-        request.send(null);
+        });
     }
 
     function checkForUpdate() {
@@ -1658,6 +1902,8 @@
     }
 
     function changeStop() {
+        leaveActiveStop();
+        text(byId("stop-name"), "Choose a boarding stop");
         showPicker();
         setStatus("Pick a recent stop, or add a new one.", false);
     }
@@ -1694,9 +1940,11 @@
 
     function setup() {
         var savedStop = "";
+        var savedMode = "";
         var savedRefresh;
         try {
             savedStop = window.localStorage.getItem(storedStopKey) || "";
+            savedMode = window.localStorage.getItem(storedModeKey) || "";
             savedRefresh = parseInt(window.localStorage.getItem(storedRefreshKey), 10);
         } catch (ignore) {}
         if (savedRefresh === 30 || savedRefresh === 60 || savedRefresh === 120 || savedRefresh === 300 || savedRefresh === 600) {
@@ -1707,7 +1955,17 @@
         text(byId("update-text"), "Installed version " + APP_VERSION + ".");
         byId("refresh").onclick = function () {
             retries = 0;
+            if (!activeStopId) {
+                setStatus("Choose a stop first.", true);
+                return;
+            }
             loadArrivals();
+        };
+        byId("mode-bus").onclick = function () {
+            setSearchMode("bus");
+        };
+        byId("mode-rail").onclick = function () {
+            setSearchMode("rail");
         };
         byId("filter-toggle").onclick = toggleFilterPanel;
         byId("check-update").onclick = checkForUpdate;
@@ -1724,7 +1982,7 @@
         };
         byId("cancel-add").onclick = function () {
             closeAddPanel();
-            setStatus(loadRecents().length ? "Pick a recent stop, or add a new one." : "Add a bus stop to begin.", false);
+            setStatus(loadRecents().length ? "Pick a recent stop, or add a new one." : "Add a stop or station to begin.", false);
         };
         byId("stop-search").onkeypress = function (event) {
             if ((event || window.event).keyCode === 13) {
@@ -1732,6 +1990,7 @@
                 return false;
             }
         };
+        setSearchMode(savedMode === "rail" ? "rail" : "bus");
         updateRefreshSummary();
         updateCountdown();
         if (savedStop && isGroupId(savedStop)) {
@@ -1747,7 +2006,7 @@
             resolveStop(savedStop);
         } else {
             showPicker();
-            setStatus("Add a bus stop to begin.", false);
+            setStatus("Add a stop or station to begin.", false);
         }
     }
 

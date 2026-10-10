@@ -379,3 +379,38 @@ th { border-top: 2px solid #000; }
 .update-title {
     margin-top: 10px;
 }
+
+#mode-switch {
+    margin: 4px 0 6px;
+}
+
+.mode-button {
+    min-width: 140px;
+    margin: 0 8px 0 0;
+}
+
+.mode-button.is-on {
+    background: #000;
+    color: #fff;
+}
+
+.platform {
+    margin-top: 2px;
+    font-size: 15px;
+    font-weight: normal;
+}
+
+.route.line-name {
+    width: 26%;
+    font-size: 19px;
+    line-height: 1.15;
+    word-wrap: break-word;
+}
+
+table.rail .destination { width: 34%; }
+table.rail .due { width: 22%; }
+
+.vehicle-note {
+    margin-top: 6px;
+    font-size: 15px;
+}
