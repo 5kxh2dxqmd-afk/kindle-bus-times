@@ -415,12 +415,16 @@
 
     function openAddPanel() {
         byId("add-panel").className = "";
-        byId("add-stop").className = "add-stop is-hidden";
+        byId("add-stop").className = "add-stop";
+        byId("add-stop").innerHTML = "Hide stop search";
+        byId("add-stop").setAttribute("aria-expanded", "true");
     }
 
     function closeAddPanel() {
         byId("add-panel").className = "is-hidden";
         byId("add-stop").className = "add-stop";
+        byId("add-stop").innerHTML = "+ Add new stop";
+        byId("add-stop").setAttribute("aria-expanded", "false");
         byId("stop-search").value = "";
         clearSearchResults();
     }
@@ -2632,11 +2636,17 @@
         byId("toggle-settings").onclick = toggleSettings;
         byId("save-settings").onclick = saveSettings;
         byId("add-stop").onclick = function () {
-            openAddPanel();
-            clearSearchResults();
-            try {
-                byId("stop-search").focus();
-            } catch (ignore) {}
+            if (byId("add-panel").className === "is-hidden") {
+                setPickerVisible(true);
+                renderRecents();
+                openAddPanel();
+                clearSearchResults();
+                try {
+                    byId("stop-search").focus();
+                } catch (ignore) {}
+            } else {
+                closeAddPanel();
+            }
         };
         byId("cancel-add").onclick = function () {
             closeAddPanel();
