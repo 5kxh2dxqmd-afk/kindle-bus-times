@@ -1,6 +1,6 @@
 # London Bus Times for Kindle Illusion
 
-This is a scriptlet-invoked Illusion application that shows live arrivals from TfL's public, anonymous API. It makes no request for, and contains no, TfL app key or personal data. Once a stop is configured, it refreshes its arrivals in-place; **Refresh now** is available for an immediate update.
+This is a scriptlet-invoked Illusion application that shows live arrivals from TfL's public API; it needs no TfL app key or login. Optional postcode lookup sends the postcode to Postcodes.io to obtain coordinates, while **Near me** sends the device coordinates to TfL to find nearby stops. These searches are not saved by the app. Once a stop is configured, it refreshes arrivals in place; **Refresh now** is available for an immediate update.
 
 ## Install
 
@@ -20,14 +20,41 @@ Tap **Settings** at the bottom of the arrivals board to choose a saved refresh i
 - **Last arrivals kept.** If the network drops, the last arrivals stay on screen with their time ("as of 07:58"), and the due times keep counting down. The app also retries once automatically.
 - **Tube and rail.** Switch **Add new stop** to **Tube & rail** to add a station (Tube, DLR, Overground or Elizabeth line). See below.
 - **Live bus strip.** Tap **Track** on a bus to see it on a straight line of stops, tagged with its route number, with the distance to your stop.
+- **Favourites and commute board.** Save stop, direction and route presets; the board shows the next matching departure for each favourite.
+- **Station facilities.** Station info shows TfL supplied toilets, lifts, escalators, step-free boarding, Wi-Fi and help-point details.
+- **Nearby and postcode search.** Search for nearby stops using device location, or type a UK postcode to find the closest TfL stops. Postcode lookup uses [Postcodes.io](https://postcodes.io/docs/postcode/lookup/) to turn the postcode into coordinates before asking TfL for nearby stops.
+- **Platform changes and planned work.** Changes in reported platforms are called out; planned closures and engineering work have a separate panel.
+- **Grouped trains and next departure.** Identical line, destination, direction and platform predictions share a row, and the next one is shown above the board.
+- **Saved offline board and low-power mode.** The most recent board is kept on device for outages. Low-power mode refreshes no faster than every five minutes, pauses when the browser reports the app is hidden, and pauses bus position polling.
 
 ## Tube and rail
 
-Use **+ Add new stop**, tap **Tube & rail**, and search for a station by name or by its ID (for example `940GZZLUVIC`). The app saves the **station** ID (`940G...` for Tube/DLR, `910G...` for Overground and Elizabeth line), so you see every platform and line at that station in one list. Use **Routes** to show only the lines you use, and the service-alert banner works for Tube lines too.
+Use **+ Add new stop**, tap **Tube & rail**, and search for a station by name or by its ID (for example `940GZZLUVIC`). Before opening the board, the app checks TfL's current predictions and asks which direction you are travelling. Each direction button includes an example line, destination and platform; **All directions** remains available when you need every platform. The choice is remembered per station and appears beside the station name.
+
+The app saves the **station** ID (`940G...` for Tube/DLR, `910G...` for Overground and Elizabeth line). Use **Routes** to narrow the selected direction to the lines you use, and the service-alert banner works for Tube lines too. **Station info** lists amenities and accessibility details supplied by TfL, including toilets and lifts when available. The listing reflects TfL's published data and may not indicate whether a facility is currently working.
 
 Each row shows the line, the destination and the platform. Tap **Info** on a row for the train's platform, last reported location (for example "At Green Park Platform 3") and due time; it updates whenever the arrivals refresh, and says when the train has gone. Tube and rail trains have no GPS and no registration plate, so there is no map strip for them; that is TfL's data, not a limit of the app.
 
 Tube arrivals use the same TfL endpoint as buses, but I could only test them against recorded-style sample data, not the live service. Overground and Elizabeth line predictions are the least tested.
+
+## Changes in 1.4.0
+
+- Added station facilities and accessibility information, including toilets and lifts where TfL publishes them.
+- Added saved route/direction favourites, a multi-stop commute board, and a prominent next-departure countdown.
+- Added platform-change and planned-work notices, grouped train rows, nearby and UK-postcode stop search, persistent offline arrivals, and low-power mode.
+
+## Changes in 1.3.0
+
+- Tube and rail stations now ask for a travel direction before loading departures, with live destination and platform context on each large Kindle-friendly choice.
+- Direction choices are saved per station, restored when the app reopens, and clearly reported when they hide other departures.
+
+## Changes in 1.2.2
+
+Bug fixes:
+
+- Changing stops while an arrivals request is in progress now loads the new stop immediately, instead of waiting for the old request to time out.
+- When a connection fails, cached arrivals now advance their due times once a minute while the app retries.
+- On launch, the previously selected stop is restored even when other recent stops are available.
 
 ## Changes in 1.2.1
 

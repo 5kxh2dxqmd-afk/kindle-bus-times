@@ -13,9 +13,13 @@
     var loading = false;
     var activeStopId = "";
     var activeStopName = "";
-    var APP_VERSION = "1.2.1";
+    var APP_VERSION = "1.4.0";
     var VERSION_URL = "https://raw.githubusercontent.com/5kxh2dxqmd-afk/kindle-bus-times/master/version.json";
     var storedFilterKey = "londonBusTimes.routeFilters";
+    var storedDirectionKey = "londonBusTimes.railDirections";
+    var storedFavouriteKey = "londonBusTimes.favourites";
+    var storedOfflineKey = "londonBusTimes.offlineArrivals.";
+    var storedPowerKey = "londonBusTimes.lowPower";
     var storedModeKey = "londonBusTimes.searchMode";
     var REQUEST_TIMEOUT_MS = 20000;
     var searchMode = "bus";
@@ -26,10 +30,17 @@
     var alertsOpen = false;
     var currentAlerts = [];
     var activeStopLines = [];
+    var activeDirection = "";
+    var activeStopRecord = null;
+    var lowPower = false;
+    var platformSnapshot = {};
+    var restoredOffline = false;
     var pickerShown = true;
     var retries = 0;
     var statusKey = "";
     var statusFetchedAt = 0;
+    var arrivalsRequestId = 0;
+    var lastStaleRenderMinute = -1;
 
     function byId(id) {
         return document.getElementById(id);
@@ -232,6 +243,19 @@
         return String(name || "").replace(/-Underground$/i, "").replace(/\s+(Underground|Rail|DLR|Tram)\s+Station$/i, "");
     }
 
+    function normaliseDirection(value) {
+        return String(value || "").replace(/^\s+|\s+$/g, "").toLowerCase();
+    }
+
+    function directionLabel(value) {
+        value = normaliseDirection(value);
+        return value ? value.charAt(0).toUpperCase() + value.substring(1) : "All directions";
+    }
+
+    function stopLabel() {
+        return activeStopName + " (" + activeStopId + ")" + (activeDirection ? " — " + directionLabel(activeDirection) : "");
+    }
+
     function parseIsoTime(value) {
         var match = (/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?(?:\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/).exec(String(value || ""));
         var time, sign, minutes;
@@ -328,11 +352,12 @@
         var box = byId("recent-list");
         var i;
         box.innerHTML = "";
+        byId("commute-global-toggle").className = loadFavourites().length ? "commute-global-toggle" : "is-hidden";
         byId("recent-stops").className = list.length ? "" : "is-hidden";
         for (i = 0; i < list.length; i += 1) {
             (function (item) {
                 addButton(box, "stop-choice", item.name || "Bus stop", stopDetail(item.towards, item.indicator, item.id, item.kind), function () {
-                    resolveStop(item.id);
+                    resolveStop(item.id, true);
                 });
             }(list[i]));
         }
@@ -347,6 +372,10 @@
 
     function leaveActiveStop() {
         stopCountdown();
+        /* Ignore an old stop's request instead of making the next stop wait for it. */
+        arrivalsRequestId += 1;
+        loading = false;
+        lastStaleRenderMinute = -1;
         VehicleTracker.close();
         TrainInfo.close();
         showDisruptions([]);
@@ -359,6 +388,14 @@
         activeStopId = "";
         activeStopName = "";
         activeStopLines = [];
+        activeDirection = "";
+        activeStopRecord = null;
+        restoredOffline = false;
+        byId("station-toolbar").className = "is-hidden";
+        byId("station-info").className = "is-hidden";
+        byId("journey-summary").className = "is-hidden";
+        byId("platform-change").className = "is-hidden";
+        byId("planned-works").className = "is-hidden";
         updateFilterBar();
         updateCountdown();
     }
@@ -371,8 +408,8 @@
         } catch (ignore) {}
         byId("mode-bus").className = rail ? "mode-button" : "mode-button is-on";
         byId("mode-rail").className = rail ? "mode-button is-on" : "mode-button";
-        text(byId("search-label"), rail ? "Station name or ID" : "Stop name, 5-digit code or stop ID");
-        byId("stop-search").placeholder = rail ? "e.g. Victoria or 940GZZLUVIC" : "e.g. Victoria, 73231 or 490008660N";
+        text(byId("search-label"), rail ? "Station, UK postcode or ID" : "Stop, postcode, code or ID");
+        byId("stop-search").placeholder = rail ? "e.g. Victoria, SW1E 5ND or 940GZZLUVIC" : "e.g. Victoria, SW1E 5ND or 73231";
         clearSearchResults();
     }
 
@@ -427,6 +464,21 @@
         return found;
     }
 
+    function findStopById(stop, wantedId) {
+        var children = stop.children || [];
+        var i, found;
+        if (normaliseStopId(stop.id || stop.naptanId || "") === normaliseStopId(wantedId)) {
+            return stop;
+        }
+        for (i = 0; i < children.length; i += 1) {
+            found = findStopById(children[i], wantedId);
+            if (found) {
+                return found;
+            }
+        }
+        return null;
+    }
+
     function renderStopChoices(stops, helpText) {
         var results = byId("search-results");
         var help = document.createElement("div");
@@ -437,14 +489,89 @@
         results.appendChild(help);
         for (i = 0; i < stops.length && i < 12; i += 1) {
             (function (stop) {
-                addButton(results, "stop-choice", stop.commonName || stop.name || "Bus stop", stopDetail(towardsOf(stop), stop.indicator, stop.id, modeLabel(stop)), function () {
+                var detail = stopDetail(towardsOf(stop), stop.indicator, stop.id, modeLabel(stop));
+                if (typeof stop.distance === "number") {
+                    detail += ", " + Math.round(stop.distance) + " m away";
+                }
+                addButton(results, "stop-choice", stop.commonName || stop.name || "Bus stop", detail, function () {
                     useIndividualStop(stop);
                 });
             }(stops[i]));
         }
     }
 
-    function useIndividualStop(stop) {
+    function directionChoices(items) {
+        var choices = [];
+        var seen = {};
+        var direction, item, detail, i;
+        for (i = 0; i < items.length; i += 1) {
+            item = items[i];
+            direction = normaliseDirection(item.direction);
+            if (!direction || seen[direction]) {
+                continue;
+            }
+            seen[direction] = true;
+            detail = [];
+            if (item.lineName || item.lineId) {
+                detail.push(item.lineName || item.lineId);
+            }
+            if (item.destinationName || item.towards) {
+                detail.push("towards " + shortStationName(item.destinationName || item.towards));
+            }
+            if (item.platformName) {
+                detail.push(item.platformName);
+            }
+            choices.push({ direction: direction, detail: detail.join(", ") || "Trains currently running this way" });
+        }
+        choices.sort(function (a, b) {
+            return a.direction < b.direction ? -1 : (a.direction > b.direction ? 1 : 0);
+        });
+        return choices;
+    }
+
+    function showRailDirections(stop) {
+        var results = byId("search-results");
+        var title = document.createElement("div");
+        var help = document.createElement("div");
+        var choices, i;
+
+        function render(items) {
+            clearSearchResults();
+            choices = directionChoices(items);
+            title.className = "picker-title direction-title";
+            text(title, "Choose a direction");
+            help.className = "search-help direction-help";
+            text(help, choices.length ? "Only trains travelling in the direction you choose will be shown." : "TfL has no directional predictions right now. You can still show every platform.");
+            results.appendChild(title);
+            results.appendChild(help);
+            for (i = 0; i < choices.length; i += 1) {
+                (function (choice) {
+                    addButton(results, "direction-choice", directionLabel(choice.direction), choice.detail, function () {
+                        useIndividualStop(stop, choice.direction);
+                    });
+                }(choices[i]));
+            }
+            addButton(results, "direction-choice direction-all", "All directions", "show every platform", function () {
+                useIndividualStop(stop, "");
+            });
+            if (activeStopId && normaliseStopId(activeStopId) === normaliseStopId(stop.id || stop.naptanId)) {
+                addButton(results, "direction-choice direction-all", "Keep current direction", "return to the current departures", function () {
+                    closeAddPanel();
+                    displayArrivals(showingStale);
+                });
+            }
+            setStatus("Choose the direction you are travelling.", false);
+        }
+
+        openAddPanel();
+        clearSearchResults();
+        setStatus("Finding directions at " + (stop.commonName || stop.name || "this station") + "…", false);
+        apiRequest(API_ROOT + encodeURIComponent(stop.id || stop.naptanId) + "/Arrivals", render, function () {
+            render([]);
+        });
+    }
+
+    function useIndividualStop(stop, direction, restoring) {
         var id = normaliseStopId(stop.id || stop.naptanId || "");
         if (!isRailStation(stop) && stop.children && stop.children.length) {
             showChildStops(stop);
@@ -454,17 +581,29 @@
             setStatus("That is a stop group, not a boarding stop. Search for the stop by name instead.", true);
             return;
         }
+        if (isRailStation(stop) && !restoring && typeof direction === "undefined") {
+            showRailDirections(stop);
+            return;
+        }
         leaveActiveStop();
         activeStopId = id;
         activeStopName = stop.commonName || stop.name || "TfL stop " + activeStopId;
         activeStopLines = linesOf(stop);
+        activeDirection = isRailStation(stop) ? normaliseDirection(direction) : "";
+        activeStopRecord = stop;
         try {
             window.localStorage.setItem(storedStopKey, activeStopId);
         } catch (ignore) {}
+        saveDirection(activeStopId, activeDirection);
         saveRecent(activeStopId, activeStopName, towardsOf(stop), stop.indicator, modeLabel(stop));
         closeAddPanel();
         setPickerVisible(false);
-        text(byId("stop-name"), activeStopName + " (" + activeStopId + ")");
+        text(byId("stop-name"), stopLabel());
+        byId("station-toolbar").className = "station-toolbar";
+        byId("change-direction").className = isRailStation(stop) ? "" : "is-hidden";
+        byId("station-info-toggle").className = isRailStation(stop) ? "" : "is-hidden";
+        renderFavouriteButton();
+        restoreOfflineArrivals(activeStopId);
         loadArrivals();
     }
 
@@ -480,7 +619,7 @@
         setStatus("Choose the side/direction of the road.", false);
     }
 
-    function resolveStop(stopId) {
+    function resolveStop(stopId, restoring, directionOverride) {
         stopId = normaliseStopId(stopId);
         if (!stopId) {
             setStatus("Enter a stop name, code or ID first.", true);
@@ -490,11 +629,16 @@
         clearSearchResults();
         setStatus("Checking stop…", false);
         apiRequest(API_ROOT + encodeURIComponent(stopId), function (stop) {
+            var exact = findStopById(stop, stopId);
+            if (exact && isRailStation(exact)) {
+                useIndividualStop(exact, restoring ? (typeof directionOverride !== "undefined" ? directionOverride : savedDirectionFor(exact.id || exact.naptanId)) : undefined, restoring);
+                return;
+            }
             if (!isRailStation(stop) && stop.children && stop.children.length) {
                 showChildStops(stop);
                 return;
             }
-            useIndividualStop(stop);
+            useIndividualStop(stop, restoring ? (typeof directionOverride !== "undefined" ? directionOverride : savedDirectionFor(stop.id || stop.naptanId)) : undefined, restoring);
         }, function (reason) {
             setStatus("TfL could not find this stop (" + reason + ").", true);
         });
@@ -598,6 +742,19 @@
         }
         if (looksLikeStopId(query)) {
             resolveStop(query);
+            return;
+        }
+        if (/^[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}$/i.test(query)) {
+            setStatus("Looking up postcode…", false);
+            apiRequest("https://api.postcodes.io/postcodes/" + encodeURIComponent(query.replace(/\s+/g, "")), function (data) {
+                if (data && data.result && typeof data.result.latitude === "number" && typeof data.result.longitude === "number") {
+                    showNearbyStops({ coords: { latitude: data.result.latitude, longitude: data.result.longitude } });
+                } else {
+                    setStatus("That postcode was not found.", true);
+                }
+            }, function (reason) {
+                setStatus("Postcode lookup failed (" + reason + ").", true);
+            });
             return;
         }
         clearSearchResults();
@@ -1092,6 +1249,8 @@
         var requestId = 0;
         var pollTimer = null;
         var currentRegistration = "";
+        var currentVehicleId = "";
+        var currentPollToken = 0;
 
         function setText(node, value) {
             if (node) {
@@ -1248,7 +1407,16 @@
 
         function beginPolling(vehicleId, token) {
             stopPolling();
+            currentVehicleId = vehicleId;
+            currentPollToken = token;
+            if (lowPower) {
+                return;
+            }
             pollTimer = window.setInterval(function () {
+                if (lowPower) {
+                    stopPolling();
+                    return;
+                }
                 if (!isCurrent(token)) {
                     stopPolling();
                     return;
@@ -1292,6 +1460,8 @@
             var detailPanel = panel();
             requestId += 1;
             currentRegistration = "";
+            currentVehicleId = "";
+            currentPollToken = 0;
             stopPolling();
             RouteMap.reset();
             if (detailPanel) {
@@ -1321,9 +1491,18 @@
             loadVehicle(currentRegistration, requestId);
         }
 
+        function setLowPower(enabled) {
+            if (enabled) {
+                stopPolling();
+            } else if (currentVehicleId && isCurrent(currentPollToken)) {
+                beginPolling(currentVehicleId, currentPollToken);
+            }
+        }
+
         return {
             track: track,
-            close: close
+            close: close,
+            setLowPower: setLowPower
         };
     }());
 
@@ -1452,6 +1631,272 @@
             data = JSON.parse(window.localStorage.getItem(storedFilterKey) || "{}");
         } catch (ignore) {}
         return (data && typeof data === "object") ? data : {};
+    }
+
+    function loadDirections() {
+        var data = {};
+        try {
+            data = JSON.parse(window.localStorage.getItem(storedDirectionKey) || "{}");
+        } catch (ignore) {}
+        return (data && typeof data === "object") ? data : {};
+    }
+
+    function savedDirectionFor(id) {
+        return normaliseDirection(loadDirections()[normaliseStopId(id)]);
+    }
+
+    function saveDirection(id, direction) {
+        var data = loadDirections();
+        id = normaliseStopId(id);
+        direction = normaliseDirection(direction);
+        if (direction) {
+            data[id] = direction;
+        } else {
+            delete data[id];
+        }
+        try {
+            window.localStorage.setItem(storedDirectionKey, JSON.stringify(data));
+        } catch (ignore) {}
+    }
+
+    function restoreOfflineArrivals(stopId) {
+        var saved;
+        try {
+            saved = JSON.parse(window.localStorage.getItem(storedOfflineKey + stopId) || "null");
+        } catch (ignore) {
+            saved = null;
+        }
+        if (!saved || !saved.items || typeof saved.fetchedAt !== "number") {
+            return;
+        }
+        lastArrivals = { stopId: stopId, items: saved.items, fetchedAt: saved.fetchedAt };
+        showingStale = true;
+        restoredOffline = true;
+        displayArrivals(true);
+        setStatus("Saved departures from " + clockLabel(saved.fetchedAt) + ". Updating…", false);
+    }
+
+    function saveOfflineArrivals() {
+        try {
+            window.localStorage.setItem(storedOfflineKey + activeStopId, JSON.stringify(lastArrivals));
+        } catch (ignore) {}
+    }
+
+    function loadFavourites() {
+        var list = [];
+        try {
+            list = JSON.parse(window.localStorage.getItem(storedFavouriteKey) || "[]");
+        } catch (ignore) {}
+        return list && typeof list.length === "number" ? list : [];
+    }
+
+    function favouriteIndex(list, id, direction) {
+        var i;
+        for (i = 0; i < list.length; i += 1) {
+            if (normaliseStopId(list[i].id) === normaliseStopId(id) && normaliseDirection(list[i].direction) === normaliseDirection(direction)) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    function isFavourite() {
+        return favouriteIndex(loadFavourites(), activeStopId, activeDirection) >= 0;
+    }
+
+    function renderFavouriteButton() {
+        var button = byId("favourite-toggle");
+        if (button) {
+            text(button, isFavourite() ? "★ Saved favourite" : "☆ Save favourite");
+        }
+    }
+
+    function toggleFavourite() {
+        var list = loadFavourites();
+        var index = favouriteIndex(list, activeStopId, activeDirection);
+        if (!activeStopId) {
+            return;
+        }
+        if (index >= 0) {
+            list.splice(index, 1);
+        } else {
+            if (list.length >= 8) {
+                setStatus("Keep up to 8 favourites on the commute board.", true);
+                return;
+            }
+            list.push({ id: activeStopId, name: activeStopName, direction: activeDirection, routes: selectedRoutes().slice(0), rail: isRailId(activeStopId) });
+        }
+        try {
+            window.localStorage.setItem(storedFavouriteKey, JSON.stringify(list));
+        } catch (ignore) {}
+        renderFavouriteButton();
+        if (byId("commute-dashboard").className !== "is-hidden") {
+            renderCommuteDashboard();
+        }
+    }
+
+    function renderStationInfo() {
+        var box = byId("station-info");
+        var properties = activeStopRecord && activeStopRecord.additionalProperties ? activeStopRecord.additionalProperties : [];
+        var wanted = { toilets: "Toilets", lifts: "Lifts", escalators: "Escalators", "boarding ramps": "Step-free boarding", "step free access": "Step-free access", wifi: "Wi-Fi", "help points": "Help points", "waiting room": "Waiting room" };
+        var values = {};
+        var title, list, row, i, key, value, count = 0;
+        box.innerHTML = "";
+        title = document.createElement("div");
+        title.className = "picker-title";
+        text(title, "Station information");
+        box.appendChild(title);
+        for (i = 0; i < properties.length; i += 1) {
+            key = String(properties[i].key || "").toLowerCase();
+            if (wanted[key] && !values[key]) {
+                values[key] = String(properties[i].value || "Not reported");
+            }
+        }
+        list = document.createElement("div");
+        list.className = "facility-list";
+        for (key in wanted) {
+            if (wanted.hasOwnProperty(key)) {
+                value = values[key];
+                if (value) {
+                    row = document.createElement("div");
+                    row.className = "facility-row";
+                    text(row, wanted[key] + ": " + value);
+                    list.appendChild(row);
+                    count += 1;
+                }
+            }
+        }
+        if (!count) {
+            row = document.createElement("div");
+            row.className = "search-help";
+            text(row, "TfL has not supplied facility details for this station.");
+            list.appendChild(row);
+        }
+        box.appendChild(list);
+        box.className = "station-info-panel";
+    }
+
+    function toggleStationInfo() {
+        var box = byId("station-info");
+        if (box.className === "is-hidden") {
+            renderStationInfo();
+        } else {
+            box.className = "is-hidden";
+        }
+    }
+
+    function renderCommuteDashboard() {
+        var box = byId("commute-dashboard");
+        var list = loadFavourites();
+        var title = document.createElement("div");
+        var button = document.createElement("button");
+        var i;
+        box.innerHTML = "";
+        title.className = "picker-title";
+        text(title, "Commute board — next departure");
+        box.appendChild(title);
+        button.type = "button";
+        button.className = "small-action";
+        text(button, "Update board");
+        button.onclick = renderCommuteDashboard;
+        box.appendChild(button);
+        if (!list.length) {
+            title = document.createElement("div");
+            title.className = "search-help";
+            text(title, "Save a stop or station as a favourite to add it here.");
+            box.appendChild(title);
+        }
+        for (i = 0; i < list.length; i += 1) {
+            (function (fav) {
+                var row = document.createElement("button");
+                var label = document.createElement("span");
+                var detail = document.createElement("span");
+                row.type = "button";
+                row.className = "commute-row";
+                label.className = "result-name";
+                detail.className = "result-meta";
+                text(label, fav.name || fav.id);
+                text(detail, " — " + (fav.direction ? directionLabel(fav.direction) : "next arrival"));
+                row.appendChild(label);
+                row.appendChild(detail);
+                row.onclick = function () {
+                    var filters = loadFilters();
+                    if (fav.routes && fav.routes.length) {
+                        filters[fav.id] = fav.routes;
+                    } else {
+                        delete filters[fav.id];
+                    }
+                    try { window.localStorage.setItem(storedFilterKey, JSON.stringify(filters)); } catch (ignore) {}
+                    resolveStop(fav.id, true, fav.direction || "");
+                };
+                box.appendChild(row);
+                apiRequest(API_ROOT + encodeURIComponent(fav.id) + "/Arrivals", function (items) {
+                    var next = null, j;
+                    if (items && typeof items.length === "number") {
+                        items.sort(function (a, b) { return a.timeToStation - b.timeToStation; });
+                        for (j = 0; j < items.length; j += 1) {
+                            if ((!fav.direction || normaliseDirection(items[j].direction) === normaliseDirection(fav.direction)) && (!fav.routes || !fav.routes.length || indexOfRoute(fav.routes, items[j].lineName || items[j].lineId) >= 0)) {
+                                next = items[j];
+                                break;
+                            }
+                        }
+                    }
+                    text(detail, next ? " — " + (next.lineName || next.lineId) + " to " + shortStationName(next.destinationName || next.towards || "") + " · " + dueText(next.timeToStation) : " — no current prediction");
+                }, function () {
+                    text(detail, " — unavailable");
+                });
+            }(list[i]));
+        }
+        box.className = "commute-panel";
+    }
+
+    function toggleCommuteDashboard() {
+        var box = byId("commute-dashboard");
+        if (box.className === "is-hidden") {
+            renderCommuteDashboard();
+        } else {
+            box.className = "is-hidden";
+        }
+    }
+
+    function showNearbyStops(position) {
+        var url = TFL_BASE + "StopPoint?lat=" + encodeURIComponent(position.coords.latitude) + "&lon=" + encodeURIComponent(position.coords.longitude) + "&radius=800&stopTypes=NaptanPublicBusCoachTram,NaptanMetroStation,NaptanRailStation";
+        setStatus("Finding nearby stops and stations…", false);
+        apiRequest(url, function (data) {
+            var points = data && data.stopPoints ? data.stopPoints : (data && data.length ? data : []);
+            var results = byId("search-results");
+            var here = { lat: position.coords.latitude, lon: position.coords.longitude };
+            points.sort(function (a, b) {
+                return distanceFrom(here, a) - distanceFrom(here, b);
+            });
+            points = points.slice(0, 10);
+            clearSearchResults();
+            renderStopChoices(points, points.length ? "Nearest stops first — choose the correct station or side of the road." : "No stops found nearby.");
+            setStatus(points.length + " nearby stops found.", false);
+        }, function (reason) {
+            setStatus("Could not find nearby stops (" + reason + ").", true);
+        });
+    }
+
+    function distanceFrom(point, stop) {
+        var lat, lon;
+        if (typeof stop.distance === "number") {
+            return stop.distance;
+        }
+        lat = (Number(stop.lat || 0) - point.lat) * 111320;
+        lon = (Number(stop.lon || 0) - point.lon) * 111320 * Math.cos(point.lat * Math.PI / 180);
+        return Math.sqrt(lat * lat + lon * lon);
+    }
+
+    function searchNearby() {
+        if (!navigator.geolocation) {
+            setStatus("Location search is not available on this Kindle.", true);
+            return;
+        }
+        setStatus("Requesting your location…", false);
+        navigator.geolocation.getCurrentPosition(showNearbyStops, function () {
+            setStatus("Could not read your location. Check the Kindle's location permissions.", true);
+        }, { maximumAge: 60000, timeout: 15000 });
     }
 
     function selectedRoutes() {
@@ -1629,6 +2074,27 @@
         box.className = "";
     }
 
+    function showPlannedWorks(list) {
+        var box = byId("planned-works");
+        var title, row, i;
+        box.innerHTML = "";
+        if (!list.length) {
+            box.className = "is-hidden";
+            return;
+        }
+        title = document.createElement("div");
+        title.className = "planned-title";
+        text(title, "Planned work");
+        box.appendChild(title);
+        for (i = 0; i < list.length; i += 1) {
+            row = document.createElement("div");
+            row.className = "planned-row";
+            text(row, list[i].name + ": " + list[i].description + (list[i].reason ? " — " + list[i].reason : ""));
+            box.appendChild(row);
+        }
+        box.className = "planned-panel";
+    }
+
     function refreshDisruptions() {
         var names = selectedRoutes();
         var ids = [];
@@ -1652,6 +2118,7 @@
         statusFetchedAt = new Date().getTime();
         apiRequest(TFL_BASE + "Line/" + ids.join(",") + "/Status", function (lines) {
             var found = [];
+            var planned = [];
             var a, b, statuses, status, description;
             if (key !== statusKey || !lines || typeof lines.length !== "number") {
                 return;
@@ -1664,14 +2131,17 @@
                     if (status.statusSeverity === 10 || description === "Good Service" || description === "No Issues") {
                         continue;
                     }
-                    found.push({
+                    var alert = {
                         name: lines[a].name || lines[a].id,
                         description: description,
-                        reason: stripReasonPrefix(String(status.reason || (status.disruption && status.disruption.description) || "").replace(/\s+/g, " "), lines[a].name || lines[a].id).replace(/^\s+|\s+$/g, "")
-                    });
+                        reason: stripReasonPrefix(String(status.reason || (status.disruption && status.disruption.description) || "").replace(/\s+/g, " "), lines[a].name || lines[a].id).replace(/^\s+|\s+$/g, ""),
+                        planned: /planned|engineering work|scheduled closure/i.test(String(status.statusSeverityDescription || "") + " " + String(status.category || "") + " " + String(status.disruption && status.disruption.category || "") + " " + String(status.reason || ""))
+                    };
+                    (alert.planned ? planned : found).push(alert);
                 }
             }
             showDisruptions(found);
+            showPlannedWorks(planned);
         }, function () {
             statusFetchedAt = 0;
         });
@@ -1763,9 +2233,14 @@
         var selected = selectedRoutes();
         var shown = [];
         var hidden = 0;
+        var hiddenByDirection = 0;
         var i;
         for (i = 0; i < items.length; i += 1) {
             if (items[i].timeToStation - elapsed < -60) {
+                continue;
+            }
+            if (activeDirection && normaliseDirection(items[i].direction) !== activeDirection) {
+                hiddenByDirection += 1;
                 continue;
             }
             if (selected.length && indexOfRoute(selected, items[i].lineName || items[i].lineId) < 0) {
@@ -1774,18 +2249,38 @@
             }
             shown.push(items[i]);
         }
-        renderArrivals(shown, elapsed, hidden);
+        if (stale) {
+            lastStaleRenderMinute = Math.floor(elapsed / 60);
+        }
+        if (isRailId(activeStopId)) {
+            shown = groupRailArrivals(shown);
+        }
+        renderArrivals(shown, elapsed, hidden, stale, hiddenByDirection);
     }
 
-    function renderArrivals(items, elapsed, hidden) {
+    function renderArrivals(items, elapsed, hidden, preserveStatus, hiddenByDirection) {
         var rail = isRailId(activeStopId);
         var noun = rail ? "train" : "bus";
         var table, header, body, row, route, destination, due, tracking, trackButton, platform, i, item;
+        var hiddenText = [];
+        if (hidden) {
+            hiddenText.push(hidden + " hidden by route filter");
+        }
+        if (hiddenByDirection) {
+            hiddenText.push(hiddenByDirection + " hidden by direction");
+        }
         clearArrivals();
         if (!items.length) {
-            setStatus(hidden ? "No " + noun + "s for your selected routes right now (" + hidden + " hidden by the route filter)." : "No " + noun + "s are currently predicted for this " + (rail ? "station" : "stop") + ".", false);
+            byId("journey-summary").className = "is-hidden";
+            if (!preserveStatus) {
+                setStatus(hiddenText.length ? "No " + noun + "s match your current choices (" + hiddenText.join("; ") + ")." : "No " + noun + "s are currently predicted for this " + (rail ? "station" : "stop") + ".", false);
+            }
             return;
         }
+
+        var journey = byId("journey-summary");
+        text(journey, "Next " + noun + ": " + (items[0].lineName || items[0].lineId || "") + " towards " + shortStationName(items[0].destinationName || items[0].towards || "destination unavailable") + " · " + dueText(items[0].timeToStation - (elapsed || 0)) + (items[0].platformName ? " · " + items[0].platformName : ""));
+        journey.className = "journey-panel";
 
         table = document.createElement("table");
         table.className = rail ? "rail" : "";
@@ -1822,6 +2317,16 @@
                 text(destination, item.destinationName || item.towards || "Destination unavailable");
             }
             text(due, dueText(item.timeToStation - (elapsed || 0)));
+            if (item.followingTimes && item.followingTimes.length) {
+                var dueExtra = document.createElement("div");
+                var dueValues = [];
+                for (var dueIndex = 0; dueIndex < item.followingTimes.length; dueIndex += 1) {
+                    dueValues.push(dueText(item.followingTimes[dueIndex] - (elapsed || 0)));
+                }
+                dueExtra.className = "due-extra";
+                text(dueExtra, "then " + dueValues.join(", "));
+                due.appendChild(dueExtra);
+            }
             text(trackButton, rail ? "Info" : "Track");
             (function (prediction) {
                 trackButton.onclick = function () {
@@ -1841,7 +2346,9 @@
         }
         table.appendChild(body);
         byId("arrivals").appendChild(table);
-        setStatus(items.length + " " + noun + (items.length === 1 ? " prediction." : " predictions.") + (hidden ? " " + hidden + " hidden by route filter." : ""), false);
+        if (!preserveStatus) {
+            setStatus(items.length + (rail ? (items.length === 1 ? " departure group." : " departure groups.") : (items.length === 1 ? " bus prediction." : " bus predictions.")) + (hiddenText.length ? " " + hiddenText.join("; ") + "." : ""), false);
+        }
     }
 
     function updateCountdown() {
@@ -1851,14 +2358,26 @@
     function beginCountdown() {
         if (timer !== null) {
             window.clearInterval(timer);
+            timer = null;
+        }
+        if (lowPower && document.hidden) {
+            text(byId("countdown"), "Paused until app is visible");
+            return;
         }
         secondsLeft = refreshSeconds;
         updateCountdown();
         timer = window.setInterval(function () {
+            var staleMinute;
             secondsLeft -= 1;
             if (secondsLeft <= 0) {
                 secondsLeft = refreshSeconds;
                 loadArrivals();
+            }
+            if (showingStale && lastArrivals.stopId === activeStopId) {
+                staleMinute = Math.floor(Math.max(0, new Date().getTime() - lastArrivals.fetchedAt) / 60000);
+                if (staleMinute !== lastStaleRenderMinute) {
+                    displayArrivals(true);
+                }
             }
             updateCountdown();
         }, 1000);
@@ -1868,30 +2387,92 @@
         var age;
         if (lastArrivals.stopId === activeStopId && lastArrivals.items.length) {
             age = (new Date().getTime() - lastArrivals.fetchedAt) / 1000;
-            if (age <= STALE_LIMIT_SECONDS) {
+            if (age <= STALE_LIMIT_SECONDS || (restoredOffline && age <= 86400)) {
                 showingStale = true;
                 displayArrivals(true);
                 setStatus(message + " Showing the last arrivals from " + clockLabel(lastArrivals.fetchedAt) + ".", true);
                 return;
             }
         }
+        showingStale = false;
+        lastStaleRenderMinute = -1;
         clearArrivals();
         setStatus(message, true);
     }
 
+    function updatePlatformChanges(items) {
+        var previous = platformSnapshot;
+        var next = {};
+        var changes = [];
+        var box = byId("platform-change");
+        var i, item, key, platform, old;
+        for (i = 0; i < items.length; i += 1) {
+            item = items[i];
+            if (!item.platformName) {
+                continue;
+            }
+            key = String(item.vehicleId || (item.lineId + "|" + item.destinationName + "|" + item.direction));
+            platform = String(item.platformName);
+            next[key] = platform;
+            old = previous[key];
+            if (old && old !== platform) {
+                changes.push((item.lineName || item.lineId || "Train") + " towards " + shortStationName(item.destinationName || item.towards || "") + ": " + old + " → " + platform);
+            }
+        }
+        platformSnapshot = next;
+        if (lowPower) {
+            box.className = "is-hidden";
+            return;
+        }
+        box.innerHTML = "";
+        if (!changes.length) {
+            box.className = "is-hidden";
+            return;
+        }
+        text(box, "Platform changed — " + changes.join("; "));
+        box.className = "platform-change-panel";
+    }
+
+    function groupRailArrivals(items) {
+        var groups = [];
+        var indexes = {};
+        var i, item, key, group;
+        for (i = 0; i < items.length; i += 1) {
+            item = items[i];
+            key = [item.lineId || item.lineName, item.destinationName || item.towards, item.platformName, item.direction].join("|");
+            if (typeof indexes[key] === "undefined") {
+                indexes[key] = groups.length;
+                group = {};
+                for (var property in item) {
+                    if (item.hasOwnProperty(property)) {
+                        group[property] = item[property];
+                    }
+                }
+                group.followingTimes = [];
+                groups.push(group);
+            } else {
+                group = groups[indexes[key]];
+                group.followingTimes.push(item.timeToStation);
+            }
+        }
+        return groups;
+    }
+
     function loadArrivals() {
         var stopId = activeStopId;
+        var requestId;
         if (!stopId || loading) {
             return;
         }
         loading = true;
+        requestId = arrivalsRequestId + 1;
+        arrivalsRequestId = requestId;
         setStatus("Updating…", false);
         apiRequest(API_ROOT + encodeURIComponent(stopId) + "/Arrivals", function (data) {
-            loading = false;
-            if (stopId !== activeStopId) {
-                loadArrivals();
+            if (requestId !== arrivalsRequestId) {
                 return;
             }
+            loading = false;
             if (!data || typeof data.length !== "number") {
                 arrivalsFailed("TfL did not return arrivals for this stop.");
                 beginCountdown();
@@ -1900,8 +2481,12 @@
             sortArrivals(data);
             retries = 0;
             showingStale = false;
+            lastStaleRenderMinute = -1;
             lastArrivals = { stopId: stopId, items: data, fetchedAt: new Date().getTime() };
-            text(byId("stop-name"), activeStopName + " (" + stopId + ")");
+            restoredOffline = false;
+            saveOfflineArrivals();
+            updatePlatformChanges(data);
+            text(byId("stop-name"), stopLabel());
             displayArrivals(false);
             TrainInfo.update(data);
             updateFilterBar();
@@ -1909,15 +2494,18 @@
             beginCountdown();
         }, function (reason) {
             var networkProblem = reason === "network error" || reason === "timed out";
-            loading = false;
-            if (stopId !== activeStopId) {
-                loadArrivals();
+            if (requestId !== arrivalsRequestId) {
                 return;
             }
+            loading = false;
             if (networkProblem && retries < 1) {
                 retries += 1;
                 setStatus("Connection hiccup, retrying…", false);
-                window.setTimeout(loadArrivals, 4000);
+                window.setTimeout(function () {
+                    if (requestId === arrivalsRequestId && !(lowPower && document.hidden)) {
+                        loadArrivals();
+                    }
+                }, 4000);
                 return;
             }
             if (networkProblem) {
@@ -1966,13 +2554,20 @@
 
     function saveSettings() {
         var chosen = parseInt(byId("refresh-interval").value, 10);
+        lowPower = !!byId("low-power").checked;
         if (chosen !== 30 && chosen !== 60 && chosen !== 120 && chosen !== 300 && chosen !== 600) {
             setStatus("Choose one of the listed refresh intervals.", true);
             return;
         }
+        if (lowPower && chosen < 300) {
+            chosen = 300;
+            byId("refresh-interval").value = "300";
+        }
         refreshSeconds = chosen;
+        VehicleTracker.setLowPower(lowPower);
         try {
             window.localStorage.setItem(storedRefreshKey, refreshSeconds);
+            window.localStorage.setItem(storedPowerKey, lowPower ? "1" : "0");
         } catch (ignore) {}
         updateRefreshSummary();
         if (activeStopId) {
@@ -1982,7 +2577,7 @@
             updateCountdown();
         }
         byId("settings").className = "is-hidden";
-        setStatus("Auto-refresh set to every " + intervalLabel(refreshSeconds) + ".", false);
+        setStatus("Auto-refresh set to every " + intervalLabel(refreshSeconds) + (lowPower ? " in low-power mode." : "."), false);
     }
 
     function setup() {
@@ -1993,12 +2588,18 @@
             savedStop = window.localStorage.getItem(storedStopKey) || "";
             savedMode = window.localStorage.getItem(storedModeKey) || "";
             savedRefresh = parseInt(window.localStorage.getItem(storedRefreshKey), 10);
+            lowPower = window.localStorage.getItem(storedPowerKey) === "1";
         } catch (ignore) {}
         if (savedRefresh === 30 || savedRefresh === 60 || savedRefresh === 120 || savedRefresh === 300 || savedRefresh === 600) {
             refreshSeconds = savedRefresh;
             secondsLeft = refreshSeconds;
         }
+        if (lowPower && refreshSeconds < 300) {
+            refreshSeconds = 300;
+            secondsLeft = refreshSeconds;
+        }
         byId("refresh-interval").value = refreshSeconds;
+        byId("low-power").checked = lowPower;
         text(byId("update-text"), "Installed version " + APP_VERSION + ".");
         byId("refresh").onclick = function () {
             retries = 0;
@@ -2015,6 +2616,16 @@
             setSearchMode("rail");
         };
         byId("filter-toggle").onclick = toggleFilterPanel;
+        byId("favourite-toggle").onclick = toggleFavourite;
+        byId("station-info-toggle").onclick = toggleStationInfo;
+        byId("commute-toggle").onclick = toggleCommuteDashboard;
+        byId("commute-global-toggle").onclick = toggleCommuteDashboard;
+        byId("nearby-search").onclick = searchNearby;
+        byId("change-direction").onclick = function () {
+            if (activeStopRecord && isRailStation(activeStopRecord)) {
+                showRailDirections(activeStopRecord);
+            }
+        };
         byId("check-update").onclick = checkForUpdate;
         byId("search-stop").onclick = searchStops;
         byId("change-stop").onclick = changeStop;
@@ -2037,6 +2648,21 @@
                 return false;
             }
         };
+        document.addEventListener("visibilitychange", function () {
+            if (!lowPower) {
+                return;
+            }
+            if (document.hidden) {
+                if (timer !== null) {
+                    window.clearInterval(timer);
+                    timer = null;
+                }
+                text(byId("countdown"), "Paused until app is visible");
+            } else if (activeStopId) {
+                loadArrivals();
+                beginCountdown();
+            }
+        }, false);
         setSearchMode(savedMode === "rail" ? "rail" : "bus");
         updateRefreshSummary();
         updateCountdown();
@@ -2045,12 +2671,12 @@
                 window.localStorage.removeItem(storedStopKey);
             } catch (ignore) {}
             showPicker();
-            resolveStop(savedStop);
+            resolveStop(savedStop, true);
+        } else if (savedStop) {
+            resolveStop(savedStop, true);
         } else if (loadRecents().length) {
             showPicker();
             setStatus("Pick a recent stop, or add a new one.", false);
-        } else if (savedStop) {
-            resolveStop(savedStop);
         } else {
             showPicker();
             setStatus("Add a stop or station to begin.", false);

@@ -17,6 +17,7 @@
         </div>
 
         <div id="stop-picker">
+            <button id="commute-global-toggle" class="is-hidden" type="button">Commute board</button>
             <div id="recent-stops" class="is-hidden">
                 <div class="picker-title">Recent stops</div>
                 <div id="recent-list"></div>
@@ -29,20 +30,32 @@
                     <button id="mode-rail" class="mode-button" type="button">Tube &amp; rail</button>
                 </div>
                 <div id="search-controls" class="input-row">
-                    <label id="search-label" for="stop-search">Stop name, 5-digit code or stop ID</label>
-                    <input id="stop-search" type="text" autocapitalize="off" autocomplete="off" placeholder="e.g. Victoria, 73231 or 490008660N">
+                    <label id="search-label" for="stop-search">Stop, postcode, code or ID</label>
+                    <input id="stop-search" type="text" autocapitalize="off" autocomplete="off" placeholder="e.g. Victoria, SW1E 5ND or 73231">
                     <button id="search-stop" type="button">Search</button>
+                    <button id="nearby-search" type="button">Near me</button>
                     <button id="cancel-add" type="button">Cancel</button>
                 </div>
             </div>
         </div>
         <div id="search-results"></div>
 
+        <div id="station-toolbar" class="is-hidden">
+            <button id="change-direction" type="button">Change direction</button>
+            <button id="station-info-toggle" type="button">Station info</button>
+            <button id="favourite-toggle" type="button">☆ Save favourite</button>
+        </div>
+        <div id="station-info" class="is-hidden"></div>
+        <div id="commute-dashboard" class="is-hidden"></div>
+
         <div id="arrivals-heading">
             <span>Live departures</span>
             <button id="refresh" type="button">Refresh now</button>
         </div>
         <div id="status" class="notice">Add a stop or station to begin.</div>
+        <div id="journey-summary" class="is-hidden"></div>
+        <div id="platform-change" class="is-hidden"></div>
+        <div id="planned-works" class="is-hidden"></div>
         <div id="filter-bar" class="is-hidden">
             <button id="filter-toggle" type="button">Routes: all</button>
         </div>
@@ -66,8 +79,9 @@
                 <option value="300">5 minutes</option>
                 <option value="600">10 minutes</option>
             </select>
+            <label class="setting-check"><input id="low-power" type="checkbox"> Low-power mode</label>
             <button id="save-settings" type="button">Save setting</button>
-            <div class="settings-note">A shorter interval uses more Wi-Fi and battery.</div>
+            <div class="settings-note">Low-power mode refreshes at least every 5 minutes, pauses when the browser reports the app is hidden, and stops live bus-position polling.</div>
             <div class="picker-title update-title">Updates</div>
             <div id="update-text"></div>
             <button id="check-update" type="button">Check for updates</button>

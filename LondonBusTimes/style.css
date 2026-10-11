@@ -97,6 +97,92 @@ button:active { background: #000; color: #fff; }
     margin: 5px 0 9px;
 }
 
+.station-toolbar {
+    margin: 6px 0;
+    padding: 4px 6px;
+    border: 2px solid #000;
+    overflow: hidden;
+}
+
+.station-toolbar button {
+    min-height: 42px;
+    margin: 3px 5px 3px 0;
+}
+
+.commute-global-toggle {
+    display: block;
+    width: 100%;
+    margin: 4px 0 8px;
+}
+
+.station-info-panel, .commute-panel {
+    margin: 6px 0;
+    padding: 8px 10px;
+    border: 2px solid #000;
+}
+
+.facility-row {
+    padding: 5px 2px;
+    border-top: 1px solid #000;
+}
+
+.commute-row {
+    display: block;
+    width: 100%;
+    min-height: 44px;
+    margin: 4px 0;
+    text-align: left;
+    font-weight: normal;
+}
+
+.small-action {
+    min-height: 32px;
+    padding: 4px 8px;
+    font-size: 15px;
+}
+
+.journey-panel {
+    margin: 7px 0;
+    padding: 9px 11px;
+    border: 3px solid #000;
+    font-size: 21px;
+    font-weight: bold;
+}
+
+.due-extra {
+    margin-top: 3px;
+    font-size: 14px;
+    font-weight: normal;
+}
+
+.platform-change-panel, .planned-panel {
+    margin: 6px 0;
+    padding: 8px 10px;
+    border: 3px solid #000;
+    font-weight: bold;
+}
+
+.planned-title {
+    margin-bottom: 4px;
+    text-transform: uppercase;
+}
+
+.planned-row {
+    padding: 4px 0;
+    border-top: 1px solid #000;
+    font-size: 16px;
+}
+
+.setting-check {
+    display: block;
+    margin: 7px 0;
+}
+
+.setting-check input {
+    width: auto;
+    margin-right: 6px;
+}
+
 .search-help, .result-meta {
     font-size: 16px;
 }
@@ -108,6 +194,33 @@ button:active { background: #000; color: #fff; }
     padding: 7px 9px;
     text-align: left;
     font-weight: normal;
+}
+
+.direction-title {
+    margin-top: 8px;
+}
+
+.direction-help {
+    margin-bottom: 7px;
+    font-size: 17px;
+}
+
+.direction-choice {
+    display: block;
+    width: 100%;
+    min-height: 52px;
+    margin: 5px 0;
+    padding: 9px 11px;
+    border-width: 3px;
+    text-align: left;
+}
+
+.direction-choice .result-name {
+    font-size: 22px;
+}
+
+.direction-all {
+    border-style: dashed;
 }
 
 .result-name { font-weight: bold; }
