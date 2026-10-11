@@ -13,7 +13,7 @@
     var loading = false;
     var activeStopId = "";
     var activeStopName = "";
-    var APP_VERSION = "1.4.0";
+    var APP_VERSION = "1.4.1";
     var VERSION_URL = "https://raw.githubusercontent.com/5kxh2dxqmd-afk/kindle-bus-times/master/version.json";
     var storedFilterKey = "londonBusTimes.routeFilters";
     var storedDirectionKey = "londonBusTimes.railDirections";
@@ -2622,7 +2622,9 @@
         byId("filter-toggle").onclick = toggleFilterPanel;
         byId("favourite-toggle").onclick = toggleFavourite;
         byId("station-info-toggle").onclick = toggleStationInfo;
-        byId("commute-toggle").onclick = toggleCommuteDashboard;
+        if (byId("commute-toggle")) {
+            byId("commute-toggle").onclick = toggleCommuteDashboard;
+        }
         byId("commute-global-toggle").onclick = toggleCommuteDashboard;
         byId("nearby-search").onclick = searchNearby;
         byId("change-direction").onclick = function () {
