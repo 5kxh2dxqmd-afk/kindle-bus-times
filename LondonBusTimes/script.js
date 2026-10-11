@@ -13,7 +13,7 @@
     var loading = false;
     var activeStopId = "";
     var activeStopName = "";
-    var APP_VERSION = "1.2.0";
+    var APP_VERSION = "1.2.1";
     var VERSION_URL = "https://raw.githubusercontent.com/5kxh2dxqmd-afk/kindle-bus-times/master/version.json";
     var storedFilterKey = "londonBusTimes.routeFilters";
     var storedModeKey = "londonBusTimes.searchMode";
@@ -23,6 +23,8 @@
     var STATUS_REFRESH_MS = 300000;
     var lastArrivals = { stopId: "", items: [], fetchedAt: 0 };
     var showingStale = false;
+    var alertsOpen = false;
+    var currentAlerts = [];
     var activeStopLines = [];
     var pickerShown = true;
     var retries = 0;
@@ -88,11 +90,6 @@
             return message.substring(colon + 1).replace(/^\s+/, "");
         }
         return message;
-    }
-
-    function shorten(value, max) {
-        var clean = String(value || "").replace(/\s+/g, " ");
-        return clean.length > max ? clean.substring(0, max - 1) + "\u2026" : clean;
     }
 
     function dueText(seconds) {
@@ -1551,36 +1548,83 @@
         bar.className = "";
     }
 
+    function groupAlerts(list) {
+        var groups = [];
+        var i, j, found;
+        for (i = 0; i < list.length; i += 1) {
+            found = null;
+            for (j = 0; j < groups.length; j += 1) {
+                if (groups[j].description === list[i].description && groups[j].reason === list[i].reason) {
+                    found = groups[j];
+                    break;
+                }
+            }
+            if (!found) {
+                groups.push({ names: [list[i].name], description: list[i].description, reason: list[i].reason });
+            } else if (indexOfRoute(found.names, list[i].name) < 0) {
+                found.names.push(list[i].name);
+            }
+        }
+        return groups;
+    }
+
     function showDisruptions(list) {
         var box = byId("disruption");
-        var title = document.createElement("div");
-        var shown = Math.min(list.length, 4);
-        var i, row, name;
+        var head = document.createElement("div");
+        var title = document.createElement("span");
+        var toggle = document.createElement("button");
+        var groups, summary, parts, row, name, reason, i;
+        var routeNames = [];
+        currentAlerts = list;
         box.innerHTML = "";
         if (!list.length) {
             box.className = "is-hidden";
             return;
         }
+        groups = groupAlerts(list);
+        head.className = "disruption-head";
         title.className = "disruption-title";
-        text(title, "Service alerts");
-        box.appendChild(title);
-        for (i = 0; i < shown; i += 1) {
-            row = document.createElement("div");
-            name = document.createElement("span");
-            row.className = "disruption-row";
-            name.className = "disruption-name";
-            text(name, list[i].name + ": " + list[i].description);
-            row.appendChild(name);
-            if (list[i].reason) {
-                row.appendChild(document.createTextNode(" " + list[i].reason));
+        for (i = 0; i < list.length; i += 1) {
+            if (indexOfRoute(routeNames, list[i].name) < 0) {
+                routeNames.push(list[i].name);
             }
-            box.appendChild(row);
         }
-        if (list.length > shown) {
-            row = document.createElement("div");
-            row.className = "disruption-row";
-            text(row, "+" + (list.length - shown) + " more routes affected");
-            box.appendChild(row);
+        text(title, "Service alerts (" + routeNames.length + (routeNames.length === 1 ? " route)" : " routes)"));
+        toggle.type = "button";
+        toggle.className = "alert-toggle";
+        text(toggle, alertsOpen ? "Hide details" : "Show details");
+        toggle.onclick = function () {
+            alertsOpen = !alertsOpen;
+            showDisruptions(currentAlerts);
+        };
+        head.appendChild(title);
+        head.appendChild(toggle);
+        box.appendChild(head);
+        if (!alertsOpen) {
+            parts = [];
+            for (i = 0; i < groups.length; i += 1) {
+                parts.push(groups[i].names.join(", ") + ": " + groups[i].description);
+            }
+            summary = document.createElement("div");
+            summary.className = "disruption-summary";
+            text(summary, parts.join("; "));
+            box.appendChild(summary);
+        } else {
+            for (i = 0; i < groups.length; i += 1) {
+                row = document.createElement("div");
+                name = document.createElement("div");
+                row.className = "disruption-row";
+                name.className = "disruption-name";
+                text(name, groups[i].names.join(", ") + ": " + groups[i].description);
+                row.appendChild(name);
+                if (groups[i].reason) {
+                    reason = document.createElement("div");
+                    reason.className = "disruption-reason";
+                    text(reason, groups[i].reason);
+                    row.appendChild(reason);
+                }
+                box.appendChild(row);
+            }
         }
         box.className = "";
     }
@@ -1620,8 +1664,11 @@
                     if (status.statusSeverity === 10 || description === "Good Service" || description === "No Issues") {
                         continue;
                     }
-                    found.push({ name: lines[a].name || lines[a].id, description: description, reason: shorten(stripReasonPrefix(status.reason, lines[a].name || lines[a].id), 150) });
-                    break;
+                    found.push({
+                        name: lines[a].name || lines[a].id,
+                        description: description,
+                        reason: stripReasonPrefix(String(status.reason || (status.disruption && status.disruption.description) || "").replace(/\s+/g, " "), lines[a].name || lines[a].id).replace(/^\s+|\s+$/g, "")
+                    });
                 }
             }
             showDisruptions(found);

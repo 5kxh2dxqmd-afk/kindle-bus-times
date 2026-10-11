@@ -414,3 +414,41 @@ table.rail .due { width: 22%; }
     margin-top: 6px;
     font-size: 15px;
 }
+
+.disruption-head {
+    overflow: hidden;
+    margin-bottom: 3px;
+}
+
+.disruption-head .disruption-title {
+    float: left;
+    margin: 8px 0 0;
+}
+
+.alert-toggle {
+    float: right;
+    margin: 0;
+}
+
+.disruption-summary {
+    clear: both;
+    padding-top: 2px;
+    font-size: 17px;
+    font-weight: bold;
+}
+
+.disruption-row {
+    clear: both;
+    padding: 4px 0;
+}
+
+.disruption-name {
+    font-size: 17px;
+    font-weight: bold;
+}
+
+.disruption-reason {
+    margin-top: 2px;
+    font-size: 16px;
+    line-height: 1.3;
+}

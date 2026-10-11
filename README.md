@@ -16,7 +16,7 @@ Tap **Settings** at the bottom of the arrivals board to choose a saved refresh i
 
 - **Recent stops and + Add new stop.** Search by name, 5-digit code or stop ID. Only individual stops are ever saved, never stop groups.
 - **Route filter.** Tap **Routes** under the arrivals status to show only the routes you use. The choice is remembered per stop.
-- **Service alerts.** If TfL reports disruption on the routes you are watching, a boxed banner shows it above the arrivals.
+- **Service alerts.** If TfL reports disruption on the routes you are watching, a boxed banner appears above the arrivals. It starts collapsed to a one-line summary; tap **Show details** for the full text of every alert (routes with the same message are grouped, nothing is cut off), and **Hide details** to collapse it again.
 - **Last arrivals kept.** If the network drops, the last arrivals stay on screen with their time ("as of 07:58"), and the due times keep counting down. The app also retries once automatically.
 - **Tube and rail.** Switch **Add new stop** to **Tube & rail** to add a station (Tube, DLR, Overground or Elizabeth line). See below.
 - **Live bus strip.** Tap **Track** on a bus to see it on a straight line of stops, tagged with its route number, with the distance to your stop.
@@ -28,6 +28,11 @@ Use **+ Add new stop**, tap **Tube & rail**, and search for a station by name or
 Each row shows the line, the destination and the platform. Tap **Info** on a row for the train's platform, last reported location (for example "At Green Park Platform 3") and due time; it updates whenever the arrivals refresh, and says when the train has gone. Tube and rail trains have no GPS and no registration plate, so there is no map strip for them; that is TfL's data, not a limit of the app.
 
 Tube arrivals use the same TfL endpoint as buses, but I could only test them against recorded-style sample data, not the live service. Overground and Elizabeth line predictions are the least tested.
+
+## Changes in 1.2.1
+
+- Service alerts can now be collapsed, and show TfL's full message instead of a cut-off excerpt. Routes with the same message are grouped.
+- The library icons are redrawn in the shape real scriptlets use (a 2:3 portrait book cover with a title). The icons live in the two `.sh` files, which the update scriptlet never replaces, so copy `LondonBusTimes.sh` and `LondonBusTimesUpdate.sh` to the Kindle again to get them.
 
 ## Changes in 1.2.0
 
@@ -45,9 +50,9 @@ Bug fixes:
 
 ## Library icons
 
-Both scriptlets carry a library icon through the `# Icon:` header line (a base64 PNG read by the Kindle's scriptlet loader). The icons use the same shape as the official KOReader example: a 600x600 PNG with a portrait, book-cover-shaped artwork (about 488x598, rounded corners) centred on a transparent background. A full-square image looks wrong in the library.
+Both scriptlets carry a library icon through the `# Icon:` header line (a base64 PNG, read by the Kindle's scriptlet loader, `sh_integration`). The icons are drawn like a book cover, the same shape real scriptlets use (for example the Kterm icon is a 256x384 image): a **2:3 portrait**, fully opaque, light background, a black glyph and a bold title. These are 400x600 PNGs.
 
-The artwork is in `assets/` (SVG source plus the PNG). To change an icon, edit the SVG, export a 600x600 PNG that keeps the transparent sides, and replace the base64 on the `# Icon:` line: `base64 -w0 icon.png` on Linux, or `base64 -i icon.png | tr -d '\n'` on macOS. The line must stay a single line, and the data type must match the image (`image/png` for a PNG). New icons may need a library refresh or a restart to show.
+The artwork is in `assets/` (SVG source plus the PNG). To change an icon, edit the SVG, export a 2:3 PNG (for example 400x600), and replace the base64 on the `# Icon:` line: `base64 -w0 icon.png` on Linux, or `base64 -i icon.png | tr -d '\n'` on macOS. Keep these rules: the `# Icon:` line must be one line within the first six lines of the file (the loader only reads the first six header lines), and the data type must match the image (`image/png` for a PNG). Do not use a square canvas or transparent margins; the library would show a square or a black block. New icons may need a library refresh or a restart to show.
 
 ## Updating
 
